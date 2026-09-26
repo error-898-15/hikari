@@ -1,59 +1,58 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "com.hikari.app"
+    // 36, not 35: OkHttp 5.4.0's Android artifact declares `minCompileSdk = 36`
+    // in its AAR metadata (and every extension built on the current keiyoushi /
+    // Aniyomi ecosystem links against OkHttp 5), so a project compiling against
+    // 35 cannot depend on it at all — AGP fails the build outright. This is a
+    // COMPILE-time level only: `targetSdk` below is untouched, so no runtime
+    // behaviour changed. See the `agp` note in gradle/libs.versions.toml.
     compileSdk = 36
 
     defaultConfig {
         applicationId = "com.hikari.app"
-        minSdk = 26
-        targetSdk = 36
-        versionCode = 214
-        versionName = "0.10.43"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
-        }
-
-        // Pass the app version into C++ (used by the crash handler's log header)
-        externalNativeBuild {
-            cmake {
-                cppFlags += "-DHIKARI_VERSION_NAME=\\\"${versionName}\\\""
-                cppFlags += "-DHIKARI_VERSION_CODE=${versionCode}"
-            }
-        }
-
+        minSdk = 24
+        targetSdk = 34
+	versionCode = 204
+	versionName = "0.10.33"
+        // CI injects the exact commit SHA the APK was built from, so the
+        // in-app update checker can compare it against main's HEAD.
+        val gitSha = System.getenv("GIT_SHA") ?: "unknown"
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
+        // ---- Processors this app is built for ----
+        // armeabi-v7a is the 32-bit arm build (older/cheaper phones) and
+        // arm64-v8a is the 64-bit one (every modern phone). x86 and x86_64 are
+        // only ever found in Android emulators, so their native libraries —
+        // tens of MB of ffmpeg/media binaries — were dead weight in every
+        // phone's download, which is what made the single APK so large.
+        // ("remove x86 and x86_64, from our apk as its for emulator we dont
+        // need it, its just increasing app size")
         ndk {
-            // Target the architectures that cover virtually all modern Android devices.
-            // 32-bit x86 is obsolete; 64-bit x86 is only used by emulators.
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a"))
         }
     }
 
+    // ---- One APK per phone, plus a universal one ----
+    // With this on, a release build produces `app-armeabi-v7a-release.apk`,
+    // `app-arm64-v8a-release.apk` and `app-universal-release.apk` instead of a
+    // single file that carries every processor's libraries. A user can then
+    // download just their own phone's build (much less data) or the universal
+    // one that works anywhere — and because only the two arm ABIs are built at
+    // all now, even the universal APK is smaller than it used to be.
+    //
+    // Every APK keeps the SAME applicationId, signing key and versionCode, so
+    // installations of one over another (and the in-app updater) all work.
     splits {
         abi {
             isEnable = true
             reset()
             include("armeabi-v7a", "arm64-v8a")
-            // Generate an additional universal APK containing all ABIs for distribution channels
-            // that do not support split APKs (e.g. GitHub Releases).
             isUniversalApk = true
-        }
-    }
-
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
         }
     }
 
@@ -78,7 +77,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
 
             // CI passes signing config via env vars (decoded from the SIGNING_KEY
-            // repo secret). Local builds stay unsigned.
+            // repo secret). For forks or local builds without secrets, fall back to debug signing.
             val storePath = System.getenv("SIGNING_STORE_PATH")
             if (!storePath.isNullOrBlank()) {
                 signingConfig = signingConfigs.create("release") {
@@ -88,7 +87,6 @@ android {
                     keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
                 }
             } else {
-                // Fallback for forks: sign with debug key so the APK can be installed on Android devices
                 signingConfig = signingConfigs.getByName("debug")
             }
         }
@@ -99,10 +97,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_17)
-        }
+    kotlinOptions {
+        jvmTarget = "17"
     }
 
     buildFeatures {
@@ -179,9 +175,6 @@ dependencies {
     implementation(libs.okhttp.brotli)
     implementation(libs.jsoup)
 
-    // Serialization
-    implementation(libs.kotlinx.serialization.json)
-
     // Image loading
     implementation(libs.coil.compose)
     implementation(libs.coil.svg)
@@ -193,11 +186,6 @@ dependencies {
     // app's runtime classpath, those calls crash with NoClassDefFoundError.
     implementation(libs.jackson.databind)
     implementation(libs.jackson.module.kotlin)
-
-    // Room database (history, bookmarks, downloaded extension metadata)
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
 
     // Injekt — Aniyomi extensions compile against Injekt's static service
     // locator (`Injekt.get<Application>()`, etc.). The bridge (which runs in
