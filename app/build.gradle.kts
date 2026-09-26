@@ -52,6 +52,8 @@ android {
             isEnable = true
             reset()
             include("armeabi-v7a", "arm64-v8a")
+            // Generate an additional universal APK containing all ABIs for distribution channels
+            // that do not support split APKs (e.g. GitHub Releases).
             isUniversalApk = true
         }
     }
@@ -77,7 +79,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
 
             // CI passes signing config via env vars (decoded from the SIGNING_KEY
-            // repo secret). For forks or local builds without secrets, fall back to debug signing.
+            // repo secret). Local builds stay unsigned.
             val storePath = System.getenv("SIGNING_STORE_PATH")
             if (!storePath.isNullOrBlank()) {
                 signingConfig = signingConfigs.create("release") {
@@ -87,6 +89,7 @@ android {
                     keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
                 }
             } else {
+                // Sign with debug key on forks so the APK can be installed on Android devices
                 signingConfig = signingConfigs.getByName("debug")
             }
         }
@@ -124,6 +127,15 @@ android {
             // classes from dex, not from jar resources. Discarding the whole
             // `versions/9/` tree is the standard fix and harmless.
             excludes += "/META-INF/versions/9/**"
+            // ---- Coroutines 1.8.1 ships a multi-release jar too ----
+            //
+            // kotlinx-coroutines-core brings its own `versions/9/module-info.class`,
+            // which collides with the same path from OkHttp's multi-release jars
+            // above. The rule above discarded `versions/9/**`, but coroutines
+            // also drops an empty `META-INF/versions/9` DIRECTORY entry into
+            // the merged jar, which AGP 8.6 rejects with the same duplicate
+            // resource error. Exclude the root of the tree as well.
+            excludes += "/META-INF/versions/**"
         }
     }
 }
@@ -172,23 +184,107 @@ dependencies {
     // artifact, which is the only 5.x flavor that supports Android without the
     // Java-9 multi-release collisions of okhttp-jvm).
     implementation(libs.okhttp)
+    // Brotli + Zstandard decompression — Cloudflare and several extension hosts
+    // (most notably AnimeFlv via Keiyoushi, which sends `content-encoding: zstd`)
+    // compress with zstd. OkHttp does not decompress zstd out of the box:
+    // without the transparent interceptor from okhttp-zstd, OkHttp hands the
+    // compressed byte stream straight to Jsoup / the JSON parser, which fails
+    // immediately with "malformed input".
+    //
+    // Two parts:
+    //  * `okhttp-zstd` (com.github.luben:zstd-jni under the hood) — the
+    //    standard transparent OkHttp interceptor, installed on Hikari's
+    //    NetworkHelper OkHttpClient so any extension using the shared client
+    //    gets zstd decompression for free.
+    //  * `zstd-kmp-okio` — the pure-Kotlin / Okio-native zstd stream Keiyoushi's
+    //    `keiyoushi.utils.Decompress` calls DIRECTLY on manual byte arrays. An
+    //    extension that bypassed the OkHttp interceptor and called
+    //    Decompress.zstd() died with NoClassDefFoundError on the first request — the "extension
+    //    shows no catalog, and there is no Cloudflare page either" report for a
+    //    whole family at once. Aniyomi's own app ships exactly this set.
     implementation(libs.okhttp.brotli)
+    implementation(libs.okhttp.zstd)
+    implementation(libs.zstd.kmp.okio)
     implementation(libs.jsoup)
 
-    // Image loading
     implementation(libs.coil.compose)
+    // SVG decoding for extension logos: plenty of plugin/addon icons are
+    // `.svg` (e.g. SkyStream's dramayo → dramayo.stream/static/dramayo.svg),
+    // and Coil 2 answers those with a decode failure — i.e. the monochrome
+    // glyph placeholder on every row. Registered in HikariApp's ImageLoader.
     implementation(libs.coil.svg)
+    // Animated GIF decoding, for collection/folder covers ("Animated GIF URL"
+    // in the cover editor): without it Coil draws only the first frame.
     implementation(libs.coil.gif)
 
-    // Jackson — required at RUNTIME because CloudStream plugins use Jackson
-    // for all their JSON parsing (e.g. `parseJson<T>()`). The plugin's bytecode
-    // contains direct calls to Jackson methods; if Jackson is missing from the
-    // app's runtime classpath, those calls crash with NoClassDefFoundError.
+    // ---- The manga reader (Nekoread's reader, ported whole) ----
+    //
+    // Three libraries the ported viewer stack is built on, all of them the exact
+    // artifacts Nekoread itself uses (a JitPack commit for the Tachiyomi fork of
+    // SubsamplingScaleImageView — the view that region-decodes a long strip from
+    // its cache file instead of holding a page-sized bitmap in memory — and the
+    // Tachiyomi fork of DirectionalViewPager, which is the ONE view that can page
+    // vertically as well as horizontally, i.e. the "paged vertical" reading mode).
+    //
+    // recyclerview is explicit rather than assumed: the webtoon viewer IS a
+    // RecyclerView (with Nekoread's own WebtoonLayoutManager, which subclasses
+    // LinearLayoutManager), and a reader that only compiled because a Compose
+    // dependency happened to bring RecyclerView along would break the day it did
+    // not.
+    implementation("com.github.tachiyomiorg:subsampling-scale-image-view:66e0db195d")
+    implementation("com.github.tachiyomiorg:DirectionalViewPager:1.0.0") {
+        // DirectionalViewPager re-exports an older androidx.viewpager; keep only
+        // the version pinned below, or the two copies fight over DuplicateClass.
+        exclude(group = "androidx.viewpager", module = "viewpager")
+    }
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
+    implementation("androidx.viewpager:viewpager:1.1.0")
+
+    implementation(libs.kotlinx.serialization.json)
+    // Two kotlinx.serialization modules nothing in Hikari's own source touches,
+    // added because ANIYOMI EXTENSIONS link against them BY NAME:
+    //
+    //  * kotlinx-serialization-json-okio provides
+    //    `kotlinx.serialization.json.okio.OkioStreamsKt`, which the keiyoushi
+    //    utils library (`keiyoushi.utils.Json.parseAs`) reaches through
+    //    `Json.decodeFromBufferedSource` on every response-backed parse. It is a
+    //    SEPARATE artifact from kotlinx-serialization-json, so an extension that
+    //    called it died with
+    //    `NoClassDefFoundError: kotlinx/serialization/json/okio/OkioStreamsKt`.
+    //  * kotlinx-serialization-protobuf provides
+    //    `kotlinx.serialization.protobuf.ProtoBuf`, which
+    //    `keiyoushi.utils.ProtobufKt` reads at class-initialisation time
+    //    (`val protoInstance: ProtoBuf = Injekt.get()`). Without it, merely
+    //    loading that file throws.
+    //
+    // Both are pure Kotlin with no native code, and proguard-rules.pro's
+    // `-keep class kotlinx.serialization.**` already keeps them whole. The
+    // ProtoBuf singleton itself is registered in HikariApp (see
+    // `registerAniyomiSingletons`).
+    implementation(libs.kotlinx.serialization.json.okio)
+    implementation(libs.kotlinx.serialization.protobuf)
+    implementation(libs.kotlin.reflect)
+
     implementation(libs.jackson.databind)
     implementation(libs.jackson.module.kotlin)
 
-    // Injekt — Aniyomi extensions compile against Injekt's static service
-    // locator (`Injekt.get<Application>()`, etc.). The bridge (which runs in
+    implementation(libs.nicehttp)
+    implementation(libs.conscrypt.android)
+    implementation(libs.androidx.preference.ktx)
+    implementation(libs.rhino)
+    implementation(libs.ktor.http)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.ksoup)
+    implementation(libs.kotlinx.datetime)
+    implementation(libs.atomicfu)
+    implementation(libs.newpipeextractor)
+
+    // Mihon/Aniyomi's dependency-injection container. Aniyomi extension APKs
+    // don't receive their dependencies as constructor arguments — the extension
+    // loader instantiates a source and the source immediately pulls what it
+    // needs (`Application`, `Json`, `NetworkHelper`, `JavaScriptEngine`, …) out
+    // of the global `Injekt` scope. Hikari has no DI container of its own, so
+    // the same container (mihonapp's fork, which rebuilds injekt for modern
     // Kotlin and patches the registrar) is installed and primed in
     // HikariApp.onCreate — see AniyomiExtensionManager.
     implementation("com.github.mihonapp:injekt:91edab2317")
@@ -223,7 +319,11 @@ dependencies {
     // classpath too.
     implementation(libs.androidx.cardview)
 
-    // Cryptography
+    // (The bundled yt-dlp "universal extractor" — dev.ffmpegkit-maintained's
+    // yt-dlp-android, a full CPython 3.13 embedded through Chaquopy — was
+    // removed in 0.9.1. It was ~15 MB of the APK, arm64-only, and only ever
+    // ran on pages every other engine had already failed on. See CHANGELOG.)
+
     implementation(libs.cryptography.core)
     implementation(libs.cryptography.provider.optimal)
 
