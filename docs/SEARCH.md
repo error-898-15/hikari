@@ -1,0 +1,349 @@
+# How the source search works — and the invariants that must not be broken
+
+This file is for whoever touches the search next. Every rule below exists because
+its absence was reported as a bug by a user. The reports are quoted so nobody
+"simplifies" these away.
+
+Everything lives in `ContentRepository.kt` unless stated otherwise.
+
+## The shape of one lookup
+
+1. **Primary targets** — the provider the title was opened from, plus (for a
+   Stremio origin) the other Stremio addons, plus Nuvio providers when the item
+   resolves to a TMDB id. These search by the provider's own id and their servers
+   stream into the list as they land.
+   With **Server search: "Only this extension"** (Settings → Playback & Servers,
+   `SearchScope.allExtensions == false`) it is the origin ALONE: no sibling
+   addons, no nuvio engines, no cross pass, no sweep, and no episode list
+   borrowed from another site. The switch is read once at the top of
+   `streamsForInner` into a local, so one lookup can never be half-scoped.
+   **Exception extensions** (`SearchScope.exceptions`) are the one thing that
+   widens that, and they carry a rule of their own — see invariant 6.
+2. **Same-engine family** — the other repos of the origin's own engine, queued
+   first in the cross pass.
+3. **Cross pass** — every other installed extension asked *by title*:
+   search → pick the best matching entry (`confidentTitleMatch`) → resolve its
+   meta + episode list → extract servers.
+4. **Background sweep** — the providers the pass did not finish with are re-asked
+   while the video plays, on the application scope. It carries BOTH kinds of
+   work (`SweepUnit.byTitle`): repos to search by title, and the pass's primary
+   targets to ask directly (a nuvio engine resolves from the TMDB id alone).
+
+## Invariants
+
+### 0. Nothing a lookup starts may be dropped — for ANY engine
+
+The user's report, twice: *"the first time it searched everything except nuvio,
+the second and third time nuvio was there"*, and *"you told me it was fixed, so
+why does it still show all servers once and skip others"*. Both halves are this
+invariant.
+
+- **Every provider a lookup asks is either asked or handed over.** The pass's
+  primary targets (the title's own extension, the nuvio engines, the Stremio
+  addons) and the cross repos all end up in `PendingWork` unless they really
+  ANSWERED. Answered means: the provider's own last call ended in an answer
+  (`providerOutcome == "no servers"`, or it returned servers) — a timeout, a
+  thrown failure, or a call cancelled while the pass was being torn down
+  (`"✗ cut off after Ns (still searching)"`) is NOT an answer and IS re-asked.
+  Never reintroduce a family-specific path here: nuvio is excluded from
+  `crossExtensionTargets` (it is asked by id, not by title) and that exclusion
+  once meant a nuvio engine that lost the race with the pass's clock was thrown
+  away with nothing left to re-ask it.
+- **A refused sweep is not a dropped one.** `MAX_PARALLEL_SWEEPS` may refuse to
+  start a sweep; the work stays on the ledger and `drainSweeps()` (run whenever a
+  sweep ends) starts it as soon as a slot frees. Automatic retries stop after
+  `SWEEP_MAX_TRIES`, and a lookup the USER starts resets that count.
+- **"No such title" is still not re-asked** (it is a real answer, and re-asking
+  it is the work that made the pass crawl), and a provider sitting behind a
+  Cloudflare wall (`crossCfSkip`) is dropped on purpose — but that drop is now
+  *counted* in the pass's `skipped=` line, because it is invisible on screen and
+  was previously invisible in the log too: 100+ Hikari repos disappeared between
+  two passes of the same title and no line said why.
+- **One provider list per pass.** `streamsForInner` reads `manager.providers`
+  ONCE and hands that snapshot to `crossExtensionTargets`; `families=` and
+  `installed=` in the pass's log line therefore always describe the same list.
+  It used to re-read the manager, so a refresh landing in between made a pass ask
+  ~100 fewer repos than the line next to it reported.
+- **The skip reasons belong to the pass that prints them** (`CrossTally.
+  filterReasons`, never a shared field): two passes run at once all the time, and
+  the shared field let one print the other's reasons.
+
+### 1. Every EXTENSION provider call is a plain blocking call
+
+`withTimeoutOrNull` gives up *logically* while the thread stays parked forever.
+So anything that WAITS on such a call can be wedged indefinitely. Consequences:
+
+This is true of the extension families (hiki/cs3/universal/skystream/aniyomi):
+their plugin runtimes are other people's code and nothing can interrupt them.
+**A nuvio engine is the exception** — its fetch bridge is a real suspension
+point, so cancelling a nuvio call really cancels its HTTP (see invariant 8).
+
+- **Never wait unboundedly on provider work.** The sweep runs each repo through
+  `detached(SWEEP_REPO_BUDGET_MS) { … }` and moves on when the budget expires.
+  Never restore the old `coroutineScope { for (target in targets) launch { … } }`
+  shape — one parked plugin then held the round (and every later round) open
+  forever: the "stuck on 30 still searching and it never moved" report.
+- **The pass has a wedge watchdog** (`CROSS_EXT_STALL_MS`): if nothing at all
+  completes for 25 s while work is outstanding, the pass ends early and every
+  repo it has no answer from goes to the background re-ask. That automatic retry
+  is exactly what the user's own workaround ("back out and press Play again")
+  did — a fresh call is what gets an answer out of a plugin whose runtime locked
+  up while cold-starting.
+- **Slots must be refundable per call.** `inFlight` is keyed by a unique call
+  token (`gated`), not by provider id. Keying by provider let a later call
+  overwrite a wedged one's entry, so its slot was never refunded and the gate
+  shrank for the rest of the session until nothing could start.
+- **A wedged extension is NOT blacklisted for the session.** `isHung` expires
+  after `HUNG_TTL_MS` (2 min). Blacklisting for the session made the automatic
+  retry skip exactly the repos that needed re-asking. (A repo skipped as hung is
+  deliberately NOT marked `Sweep.answered`, so it stays on the ledger and is
+  asked once its wedge expires.)
+
+### 2. First server fast, on EVERY play — not just the second
+
+- **Extraction is progressive**: `launchPendingExtractions()` runs on every
+  iteration of the pass loop, in trust order (origin first, then proven repos,
+  then the origin's family, then the rest). It used to wait until every one of
+  ~250 extensions had been searched, or 45 s had passed, while the whole pass was
+  capped at 55 s — so a cold first play could not produce a server for ~45 s and
+  the second play (warm caches) was instant.
+- **Searches are fanned out in WAVES** (`CROSS_EXT_WAVE_*`): a few repos first,
+  widening only while answers come back. Firing ~96 cold plugin runtimes at the
+  same instant is what wedges them on a phone. Waves only stagger the start —
+  every target is still asked, in trust order (`crossExtensionTargets`).
+- **The origin's hold is a HEAD START, not a wait.** With "play as soon as the
+  first server is found" (the default), `originReady` in PlayerActivity stops
+  holding the moment `ORIGIN_HEAD_START_MS` (3 s) has passed since the FIRST
+  server arrived — `originHeadStartMs` in the launch intent, and
+  `firstServersAt` in the live collector. Only "wait for more servers first"
+  uses the full `ORIGIN_PLAY_GRACE_MS` (45 s) window. The report: *"it found
+  70-80 servers but it still searching on loading screen instead of playing"* —
+  a full server list was held behind one repo's answer. The origin's own
+  servers still arrive and are still placed at the top of the list.
+
+### 3. Every state on screen must be able to resolve
+
+- The sweep is bounded: `SWEEP_BUDGET_MS` per round, `SWEEP_MAX_ROUNDS` rounds
+  (two of each). It used to run 10 min × 6 rounds, so the Sources panel could
+  honestly say "still searching" for ~an hour.
+- `anySweepBusy` / `sweepBusyFor` are **staleness-aware** (`SWEEP_STALE_MS`): a
+  sweep that has reported nothing for 90 s stops counting as an active search.
+- The player's Sources line counts `running` only while the tally has changed
+  within `SEARCH_QUIET_MS` (PlayerActivity), so a frozen count cannot be shown
+  as a running search.
+- **The Sources line counts EVERY engine** (`CrossTally.running` +
+  `primaryRunning`, and likewise for `asked`/`found`). It used to count only the
+  cross repos, so a nuvio engine still cold-booting was in none of its numbers:
+  the line said "done" — honestly, by its own books — over a list with no nuvio
+  tab at all. Anything whose answer the player is waiting for must move these
+  maps, and `crossStatusQuietForMs` (which decides whether a count is still
+  moving) is bumped on every primary arrival for the same reason.
+- `sweepBusyFor` also reports TRUE while this video has unfinished work waiting
+  for a free sweep slot, so the detail screen does not announce "no playable
+  server found" over a repo that has not been asked yet.
+- The detail screen watches the sweep for at most `SWEEP_WATCH_CAP_MS` (5 min)
+  and then commits to a verdict and calls `StreamsLive.markDone`.
+
+### 4. Language: read in the chosen language, search in the original
+
+- **Display**: the page title is the name the page was OPENED with (the provider
+  meta never renames it — see the "THE PAGE NEVER RENAMES ITSELF" block), the
+  description prefers TMDB's localized `TitleExtras.overview`, and episode names
+  come from `EpisodeTitles.lookup(..., language)` with
+  `TmdbResolver.contentLanguage`. Auto-translate (`Translator`) runs BEFORE the
+  TMDB lookup so a real localized name is never replaced by an English one.
+- **Search**: every provider query uses `MediaItem.searchTitle` = the original
+  (English) name whenever TMDB knows one. Never search with the display title.
+- **An EXTENSION item has no TMDB original name, so one is derived**: the page
+  translates the item's own name to English once (`englishSearchName` in
+  `DetailScreen.kt`, 2.5 s, skipped for a name that is already Latin, cached in
+  memory and on disk by `Translator`), carries it as `originalTitle`, and strips
+  the words the translator adds ("The movie Moana" → "Moana"). Without this an
+  Arabic-named item hands the Arabic name to every other repo, none of which
+  indexes it, and only the engines that resolve by TMDB id answer — the reported
+  "in Arabic it plays from nuvio only, in English it finds all the servers".
+- **TMDB's own `videos` list must be asked for MORE than one language**
+  (`TmdbMeta.extras`): the list only contains videos tagged with the requested
+  language, so a non-English `language` returns one trailer (or none). The query
+  sends `include_video_language=<app>,en,null`.
+
+### 5. A server must belong to the same show AND the same episode
+
+`confidentTitleMatch` (the only filter the cross pass applies — the origin's own
+results are never filtered):
+
+- reject page titles that are really URLs / query echoes (`looksLikeUrlEcho`);
+- reject media-kind mismatches (a MOVIE entry for an episode of a SERIES);
+- one title's significant words must contain the other's, and the head word must
+  survive;
+- a repo entry that is a SHORTENED form of what was asked for must still carry ≥2
+  significant words — a single word is how an unrelated video gets in ("an adult
+  video titled Renegade"), while a repo naming the show MORE fully is accepted at
+  any length;
+- when both years are known and differ by more than one, only an exact match is
+  accepted;
+- a candidate whose own name states an explicit episode number must state the one
+  being played (`statedEpisodeNumber` — explicit markers only, so "Show Season 2"
+  is not misread as episode 2).
+
+`matchCrossEpisode` then maps the played episode onto the repo's own numbering
+(same season/number, single-season repos, season-by-position, flat numbering, and
+finally the number written in the row's own name).
+
+### 6. An exception extension is one-directional
+
+The user's report: *"if i select mrds and 51cg server, so now if i am on 1show
+server and play video it search all server also mrds and 51cg, but if i open mrds
+or cg51 extension and trying to play video from these extension it wont search any
+other extension for server and only play with its own server."*
+
+- **In force only when the switch is on.** `SearchScope.exceptions` is the CHOSEN
+  ids while "Exception extensions" is on and the EMPTY SET while it is off
+  (`AppStore.activeSearchExceptionsFlow` is the one place that combines the two,
+  and HikariApp mirrors it), so the switch and the list can never disagree
+  mid-lookup.
+- **Origin is the exception's own repo ⇒ the pass collapses to "only this
+  extension".** `originIsException` in `streamsForInner` forces `scopeAll = false`
+  and clears `exceptions` for that lookups, whatever the two switches say. This is
+  the second half of the report and it is deliberate: a repo the user marked keeps
+  its own catalogue to itself.
+- **Everywhere else they are ADDED, never a replacement.** With `scopeAll` false
+  but exceptions present, the pass asks the origin (as always) plus the exception
+  repos: nuvio exception ids go through the nuvio (by-TMDB-id) path, and every
+  other engine's exception id goes through `crossExtensionTargets(…, onlyIds =
+  exceptions)` — so the same title-search, trust order, filters and tally apply,
+  over the marked ids instead of over everything.
+- **The episode-list fallback follows the same rule**: `episodesFromExtensions`
+  may borrow from exception repos when the switch is off, and returns null (as
+  before) when there are none. A lookup started inside an exception repo still
+  never reaches it.
+- **Anything that says how wide the search is must count them** — the detail
+  screen's status line ("Searching your extension + N more…") and the "no
+  playable server" note (which may only claim a single-repo verdict when there are
+  no exceptions in play).
+
+### 7. A nuvio engine must get its turn — and its own budget
+
+The user's report: *"in our hikari it's not extracting all nuvio servers, while
+in nuvio app the extractor shows servers from all plugin"*, with 20+ nuvio
+providers installed and only 2-3 servers on the list. Three separate limits were
+stopping the tail of the provider queue from ever answering:
+
+- **The runtime is compiled once, not once per provider.** Every nuvio call boots
+  a fresh QuickJS engine and evaluates `assets/nuvio/{boot,cheerio,harness}.js`
+  into it — ~550KB of JavaScript, cheerio alone being 450KB. Compiling that from
+  source per provider meant a 20-provider search spent most of its budget
+  re-parsing the same bundle 20 times. `NuvioRuntime.bytecodeCache` (with
+  `evaluateCached`) compiles each script to QuickJS bytecode once and evaluates
+  the bytecode from then on, exactly as nuvio does (`JsRuntime`'s cached
+  polyfill/call bytecode). Bytecode is portable across engines of the same
+  QuickJS build, and a compile/run failure falls back to evaluating the source,
+  so a compiler hiccup can only cost speed, never a provider.
+- **The caps are nuvio's own numbers**: `CALL_TIMEOUT_MS = 60_000`
+  (`PLUGIN_TIMEOUT_MS`), and `MAX_CONCURRENT = 12` rather than nuvio's 10 — a
+  typical curated install is a dozen engines (the sources sheet reports it as
+  "Nuvio 12"), and with only 10 slots the last two QUEUE for a slot instead of
+  running, so on a phone already running the 400-repo cross-extension sweep their
+  whole budget can be spent waiting. nuvio never has this problem because it runs
+  nothing but the engines; two extra native VMs is a rounding error next to the
+  engines that then answer in the same window. (At 6 engines and 45 s a provider
+  it was far worse — most of a 20+ provider install was still queued when the
+  budget expired, and a timeout is not an answer, so those providers were "cut
+  off", re-asked by the background sweep, and cut off again.)
+  **Since 0.10.23 the slots are also the least of it**: the bridge is
+  asynchronous (invariant 8), so a queue of engines now actually drains at
+  network speed instead of at four-threads-at-a-time, and background sweeps take
+  their own small pool (`NuvioRuntime.withBackgroundSlot`) rather than competing
+  for these slots at all.
+- **The PASS must outlast the engines.** `ContentRepository`'s primary pass ends
+  at a deadline, and it used to be 55 s — shorter than the 60 s a nuvio engine is
+  allowed. So the tail of the engine set was cancelled mid-run, and because the
+  pass's cancellation kills the engine outright, the background sweep had to
+  re-ask it from scratch: a second VM boot plus a second round of network work for
+  the same answer. When the pass has nuvio targets the ceiling is now the longer
+  of `NetTuning.timeout(70_000L)` and 75 s; otherwise it stays at 55 s. The
+  deadline only binds while engines are still working, and results stream in as
+  they land, so waiting is strictly cheaper than redoing.
+- **An anime title must be asked for as a SERIES.** Every nuvio provider we ship
+  branches on `mediaType === "tv" ? "tv" : "movie"` (or builds
+  `${mediaType}/${tmdbId}` URL segments with it) — **no provider understands
+  "anime"**. So an anime resolved to the hint `anime` was looked up as a MOVIE:
+  `/movie/<tvId>` coming back 404 an empty list, i.e. a whole category of titles
+  with no servers, and the sweep re-asking the same wrong question. `getStreams`
+  now normalises the resolver's hint before any engine sees it —
+  `if (resolved.mediaType.equals("movie", true)) "movie" else "tv"` — so
+  series (including anime and every other `tv`-ish kind) are asked for as "tv"
+  and only real films as "movie". Do not add a third value here without
+  checking all 29 bundled providers; the contract is two-valued.
+- **The engines that produced nothing are now visible.** `nuvioReportLines` in
+  `DetailScreen.kt` prints one line per installed nuvio engine in the sources
+  sheet (both under the list and in the "no playable sources" state): what it
+  answered, or "never ran — no engine slot before the search ended". The maps it
+  reads (`NuvioScraper.lastOutcome`/`streamErrors`) are cleared at the start of
+  a search, so a provider with no entry genuinely was not asked. Do not remove
+  this: without it "why is this plugin's servers missing" is unanswerable from
+  the app itself.
+
+**Leaving the player holds the sweep** (`StreamsLive.remove(id, holdSweep =
+true)` → `ContentRepository.pauseSweepFor`). A nuvio sweep cold-starts an engine
+per provider, and releasing it at `onDestroy` started exactly that while the
+player was being torn down and the previous screen rebuilt — the *"it stays laggy
+for a few seconds after I come back from the player"* report. The cancelled
+sweep's unasked providers stay on the `PendingWork` ledger, and the hold is
+released by the next play of the same title (or by `SWEEP_HOLD_MAX_MS`), so
+nothing is lost.
+
+### 8. A nuvio engine is asked asynchronously, and never behind a pass
+
+The report that produced this: *"see in nuvio i try playing something and it
+shows all this server in less than 5 second, so you know the real issue is not
+server time like 75second or 60second cap or anything, the real issue is
+something else"*. It was not the cap. Three things were true at once:
+
+- **The fetch bridge was SYNCHRONOUS.** `__hikariFetch` was registered with
+  `QuickJs.function` (a plain native call), so JS got its answer only once the
+  request was over: a provider doing `Promise.all([fetch(a), fetch(b)])` ran `a`
+  and then `b`, and — because every request was submitted to a fixed pool of
+  **four** threads and blocked on — at most four nuvio requests could be in
+  flight in the whole app, however many engines were running. The reference
+  client's bridge is `asyncFunction` over its own HTTP client
+  (`await __native_fetch(...)`), which is why the same providers answer there in
+  a couple of seconds. **`NuvioRuntime.bridgeFetchAsync`** now does the same:
+  `asyncFunction` + OkHttp's `enqueue` through `suspendCancellableCoroutine`,
+  with `Dispatcher(maxRequests = 64, maxRequestsPerHost = 12)`. The JS side had
+  to follow: `harness.js`'s `__nuvioFetch` awaits the bridge and its response
+  interceptors (`__nuvioIntercept`, `__nuvioFixTmdb`, `__nuvioJikanFallback`,
+  `__nuvioGraphQL`) are `async` — a *synchronous* fetch wrapped in
+  `Promise.resolve()` still works, so the same harness would run over a WebView
+  host.
+- **Cancellation now works.** The old bridge could not be interrupted
+  (`withTimeoutOrNull` gave up logically while the socket stayed open), so one
+  hung site — NetMirror in the user's log: three concurrent attempts, "no answer
+  in 92s" each — held a VM, a slot and a thread for a minute and a half *after*
+  the search that asked for it was over. `call.cancel()` on cancellation fixes
+  both the tail and the "it stays laggy for a few seconds after I come back from
+  the player".
+- **A sweep must never be the reason a pass is slow.** `ContentRepository`'s
+  companion keeps a foreground/background gate: `enterForegroundPass()` /
+  `exitForegroundPass()` wrap the pass body (the exit is in its `finally`, so a
+  cancelled pass still releases it), `quietFor(POST_PLAYER_QUIET_MS)` opens an
+  8-second window when the player closes, and `awaitBackgroundClearance()` is
+  what the sweep's worker loop calls before every repo. The wait is taken off the
+  sweep's round budget (`pausedMs`) and refreshes `sweep.lastProgressAt`, so a
+  parked sweep is neither starved nor mistaken for a wedged one.
+
+### 9. "No servers" is an ANSWER; a crash is not
+
+`isNoAnswer()` decides whether a provider is re-asked in the background. A
+nuvio engine that threw inside its own JS used to report `"✗ <js error>"`, which
+matched none of its keywords, so it was recorded as the answer **"no servers"** —
+never asked again, and its line in the sources sheet said the engine had looked
+and found nothing. `NuvioScraper` now says what happened:
+
+- `"✗ provider failed: …"` — a crash, a bridge failure, an unreadable payload, a
+  budget that ran out, or a TMDB id we could not resolve. Recognised by
+  `isNoAnswer()` (which matches `provider failed`), so it is re-asked.
+- `"no sources for this title"` — a real answer from a real run. Not re-asked.
+
+The per-provider log line prints the provider's own message instead of a blanket
+`no servers`, so a search that comes back thin says which of the two it was.
