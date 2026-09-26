@@ -1,15 +1,14 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "com.hikari.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.hikari.app"
@@ -20,11 +19,6 @@ android {
 
         val gitSha = System.getenv("GIT_SHA") ?: "unknown"
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
-        }
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")
@@ -41,10 +35,6 @@ android {
     }
 
     buildTypes {
-        debug {
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
-        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -59,6 +49,8 @@ android {
                     keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
                 }
             } else {
+                // FORKS & LOCAL BUILDS: Automatically sign with Android's debug key
+                // so the output APK has valid v1, v2, and v3 signatures and installs cleanly on Android.
                 signingConfig = signingConfigs.getByName("debug")
             }
         }
@@ -71,14 +63,13 @@ android {
 
     kotlin {
         compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            jvmTarget.set(JvmTarget.JVM_17)
         }
     }
 
     buildFeatures {
         compose = true
         buildConfig = true
-        viewBinding = true
     }
 
     packaging {
@@ -214,4 +205,12 @@ dependencies {
     implementation(libs.androidx.lifecycle.process)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+}
+
+configurations.configureEach {
+    exclude(mapOf("group" to "org.json", "module" to "json"))
+}
+
+configurations.configureEach {
+    resolutionStrategy.force("com.squareup.okhttp3:okhttp-dnsoverhttps:${libs.versions.okhttp.get()}")
 }
