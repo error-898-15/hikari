@@ -1123,12 +1123,14 @@ fun HomeScreen(nav: NavHostController) {
                     // searched for before something can be watched. With an
                     // extension picked, the tap first asks WHERE: that
                     // extension alone, or everything (see [genreScope]).
-                    HomeGenreStrip { name, genresText, keywordsText ->
-                        val ext = selection.filter { !it.startsWith(COLLECTION_PREFIX) }.toSet()
-                        if (ext.isEmpty()) {
-                            openTmdbGenre(name, genresText, keywordsText)
-                        } else {
-                            genreScope = GenreScopePick(name, genresText, keywordsText, ext)
+                    if (!TvMode.current()) {
+                        HomeGenreStrip { name, genresText, keywordsText ->
+                            val ext = selection.filter { !it.startsWith(COLLECTION_PREFIX) }.toSet()
+                            if (ext.isEmpty()) {
+                                openTmdbGenre(name, genresText, keywordsText)
+                            } else {
+                                genreScope = GenreScopePick(name, genresText, keywordsText, ext)
+                            }
                         }
                     }
                 }
@@ -1194,78 +1196,70 @@ fun HomeScreen(nav: NavHostController) {
             uniqueRows.forEach { row ->
                 item(
                     key = row.key.ifBlank { "${row.providerName}|${row.title}" },
-                    // One content type for every shelf, so the LazyColumn can
-                    // REUSE the subtree (and its remembered poster style) between
-                    // rows instead of composing a fresh one when a row scrolls
-                    // off and another on.
                     contentType = "media-row",
                 ) {
-                    MediaRow(
-                        title = row.title,
-                        providerName = row.providerName,
-                        items = row.items,
-                        keeperKey = "homeRow:" + row.key.ifBlank { "${row.providerName}|${row.title}" },
-                        onClick = { item ->
-                            Routes.safeNavigate(
-                                nav,
-                                // Tracker manga shelves open in the manga
-                                // section (searched across every installed
-                                // manga engine), never as video.
-                                if (item.rawType == "manga") {
-                                    Routes.mangaRoute(item.providerId, item.id, item.title, item.posterUrl)
-                                } else {
-                                    Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
-                                }
-                            )
-                        },
-                        // Poster hold-menu play: open the detail page already
-                        // wanting playback, so it starts the instant the first
-                        // server lands (see DetailScreen autoplay). Manga has
-                        // no video to autoplay — it opens in the manga section.
-                        onQuickPlay = { item ->
-                            Routes.safeNavigate(
-                                nav,
-                                if (item.rawType == "manga") {
-                                    Routes.mangaRoute(item.providerId, item.id, item.title, item.posterUrl)
-                                } else {
-                                    Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType, autoplay = true)
-                                }
-                            )
-                        },
-                        onShowAll = {
-                            // A row of the picked collection's OWN shelves shows
-                            // the WHOLE collection (every folder and every
-                            // catalog in it, as one scrollable grid) — a folder
-                            // row used to open just that folder, which left the
-                            // user unable to see the rest of the collection.
-                            // An EXTENSION row keeps its own catalog, even with
-                            // a collection picked: it used to be sent to the
-                            // collection grid as well, so "Show all" on an
-                            // extension's shelf opened an unrelated page (and,
-                            // for a collection holding nothing, a page that only
-                            // said so). The row's key is what tells them apart —
-                            // the collection's rows are keyed "coll|…" by
-                            // CollectionsRepository.
-                            val collectionId = if (row.key.startsWith("coll|")) {
-                                selectedCollection?.id ?: row.key.split('|').getOrNull(1)
+                    val openItem: (MediaItem) -> Unit = { item ->
+                        Routes.safeNavigate(
+                            nav,
+                            if (item.rawType == "manga") {
+                                Routes.mangaRoute(item.providerId, item.id, item.title, item.posterUrl)
                             } else {
-                                null
+                                Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
                             }
-                            if (collectionId != null) {
-                                Routes.safeNavigate(nav, Routes.collectionGrid(collectionId))
-                            } else {
+                        )
+                    }
+                    val openShowAll: () -> Unit = {
+                        val collectionId = if (row.key.startsWith("coll|")) {
+                            selectedCollection?.id ?: row.key.split('|').getOrNull(1)
+                        } else {
+                            null
+                        }
+                        if (collectionId != null) {
+                            Routes.safeNavigate(nav, Routes.collectionGrid(collectionId))
+                        } else {
+                            Routes.safeNavigate(
+                                nav,
+                                Routes.catalog(
+                                    row.providerId, row.catalogId, row.title,
+                                    row.providerName, row.type, row.rawType
+                                )
+                            )
+                        }
+                    }
+
+                    if (TvMode.current()) {
+                        com.hikari.app.tv.TvCinemaRow(
+                            title = row.title,
+                            providerName = row.providerName,
+                            items = row.items,
+                            vertical = true,
+                            keeperKey = "homeRow:" + row.key.ifBlank { "${row.providerName}|${row.title}" },
+                            onOpen = openItem,
+                            onShowAll = openShowAll,
+                        )
+                    } else {
+                        MediaRow(
+                            title = row.title,
+                            providerName = row.providerName,
+                            items = row.items,
+                            keeperKey = "homeRow:" + row.key.ifBlank { "${row.providerName}|${row.title}" },
+                            onClick = openItem,
+                            onQuickPlay = { item ->
                                 Routes.safeNavigate(
                                     nav,
-                                    Routes.catalog(
-                                        row.providerId, row.catalogId, row.title,
-                                        row.providerName, row.type, row.rawType
-                                    )
+                                    if (item.rawType == "manga") {
+                                        Routes.mangaRoute(item.providerId, item.id, item.title, item.posterUrl)
+                                    } else {
+                                        Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType, autoplay = true)
+                                    }
                                 )
-                            }
-                        }
-                    )
+                            },
+                            onShowAll = openShowAll,
+                        )
+                    }
                 }
             }
+                    
             if (rows.isEmpty() && !loading && collectionFolderRows.isEmpty()) {
                 item {
                     val collection = emptyTalkCollection
