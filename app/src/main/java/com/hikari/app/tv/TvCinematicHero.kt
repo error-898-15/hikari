@@ -2,7 +2,6 @@ package com.hikari.app.tv
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +30,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -64,8 +64,11 @@ fun TvCinematicHero(
     scale: Float = 1f,
     bookmarkedIds: Set<String> = emptySet(),
     onToggleBookmark: ((MediaItem) -> Unit)? = null,
-    focusedItem: MediaItem? = null,
+    focusedItem: MediaItem? = TvHeroFocusState.focusedItem,
 ) {
+    LaunchedEffect(items) {
+        TvHeroFocusState.focusedItem = null
+    }
     if (items.isEmpty() && focusedItem == null) return
     var index by remember(items) { mutableIntStateOf(0) }
     val item = focusedItem ?: items[index.coerceIn(items.indices)]
@@ -86,10 +89,12 @@ fun TvCinematicHero(
                         event.nativeKeyEvent.repeatCount != 0) return@onPreviewKeyEvent false
                     when (event.key) {
                         Key.DirectionLeft -> {
+                            TvHeroFocusState.focusedItem = null
                             if (items.isNotEmpty()) index = (index - 1 + items.size) % items.size
                             true
                         }
                         Key.DirectionRight -> {
+                            TvHeroFocusState.focusedItem = null
                             if (items.isNotEmpty()) index = (index + 1) % items.size
                             true
                         }
@@ -98,7 +103,6 @@ fun TvCinematicHero(
                 }
                 .clickable { onOpen(item) },
         ) {
-            // ডান পাশে ওয়াইড ব্যাকড্রপ আর্টওয়ার্ক (Nuvio স্টাইল)
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.76f)
@@ -114,7 +118,6 @@ fun TvCinematicHero(
                 )
             }
 
-            // বাম দিক থেকে ডানে স্মুথ হরাইজন্টাল ফেড গ্র্যাডিয়েন্ট
             Box(
                 Modifier
                     .fillMaxSize()
@@ -128,7 +131,6 @@ fun TvCinematicHero(
                     )
             )
 
-            // নিচের দিকে স্মুথ ভার্টিকাল ফেড গ্র্যাডিয়েন্ট
             Box(
                 Modifier
                     .fillMaxSize()
@@ -142,7 +144,6 @@ fun TvCinematicHero(
                     )
             )
 
-            // বাম পাশের মেটাডেটা এবং টাইটেল কলাম
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -161,7 +162,6 @@ fun TvCinematicHero(
 
                 Spacer(Modifier.height(6.dp))
 
-                // মেটাডেটা লাইন: Movie • Action • Adventure • 2026
                 Text(
                     tvHeroMeta(item),
                     style = MaterialTheme.typography.labelLarge,
@@ -172,7 +172,6 @@ fun TvCinematicHero(
 
                 Spacer(Modifier.height(8.dp))
 
-                // ব্যাজ সারি: টাইপ ব্যাজ + হলুদ IMDb রেটিং ব্যাজ
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
