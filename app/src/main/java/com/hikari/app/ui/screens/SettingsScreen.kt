@@ -3559,6 +3559,32 @@ private fun HeroBannerCard(app: HikariApp) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         }
+        // Height only: the card keeps its width and gets shorter or taller (the
+        // slider above scales width and height together). Stored by HeaderPrefs.
+        Spacer(Modifier.height(14.dp))
+        var headerHeight by remember {
+            mutableStateOf(com.hikari.app.ui.HeaderPrefs.heightPercent.toFloat())
+        }
+        SettingsSlider(
+            label = tr("Header height"),
+            value = headerHeight,
+            valueText = headerHeight.roundToInt().toString() + "%",
+            valueRange = 50f..150f,
+            steps = 99,
+            onValueChange = { v -> headerHeight = v.roundToInt().toFloat().coerceIn(50f, 150f) },
+            onValueChangeFinished = {
+                val pct = headerHeight.roundToInt().coerceIn(50, 150)
+                headerHeight = pct.toFloat()
+                com.hikari.app.ui.HeaderPrefs.setHeightPercent(pct)
+            },
+        )
+        if (!LocalHideHelp.current) {
+            Text(
+                tr("Makes only the height of the Home header image smaller or bigger — the width stays the same, on phone and on TV"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Spacer(Modifier.height(8.dp))
         SettingsToggle(
             label = tr("Plot line"),
