@@ -54,6 +54,10 @@ import com.hikari.app.i18n.tr
 import com.hikari.app.ui.Artwork
 import com.hikari.app.ui.components.SettingsThemeTile
 
+object TvHeroFocusState {
+  var focusedItem by mutableStateOf<MediaItem?>(null)
+}
+
 @Composable
 @Suppress("UNUSED_PARAMETER")
 fun TvSettingsSourceCard(
@@ -132,7 +136,10 @@ fun TvCinemaCard(
       .width(cardWidth)
       .onFocusChanged { state ->
         focused = state.isFocused
-        if (state.isFocused) onFocused?.invoke()
+        if (state.isFocused) {
+          TvHeroFocusState.focusedItem = item
+          onFocused?.invoke()
+        }
       }
       .clickable(onClick = onClick)
       .tvPress(previewPass = true, onClick = onClick),
@@ -223,7 +230,10 @@ fun TvVerticalCard(
       )
       .onFocusChanged { state ->
         focused = state.isFocused
-        if (state.isFocused) onFocused?.invoke()
+        if (state.isFocused) {
+          TvHeroFocusState.focusedItem = item
+          onFocused?.invoke()
+        }
       }
       .clickable(onClick = onClick)
       .tvPress(previewPass = true, onClick = onClick),
