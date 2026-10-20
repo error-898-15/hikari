@@ -228,21 +228,24 @@ private fun heroFrame(aspect: Float, horizontalInsets: Float = 0f, scale: Float 
     val width = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.toFloat()
     val natural = (width - horizontalInsets) / aspect
     val s = scale.coerceIn(0.5f, 1.5f)
+    // Settings → App Layout → Featured banner → Header height: height only, on
+    // top of the size slider (1f = the height the banner always had).
+    val hf = com.hikari.app.ui.HeaderPrefs.heightFactorFor(s)
     if (!TvMode.current()) {
         return if (s >= 1f) {
-            Modifier.fillMaxWidth().aspectRatio(aspect / s)
+            Modifier.fillMaxWidth().aspectRatio(aspect / (s * hf))
         } else {
             // Narrower AND shorter, centred: symmetric side padding in place of
             // a width fraction (this Compose version's fillMaxWidth takes no
             // alignment), so the card shrinks towards the middle of the page.
             val side = ((width - horizontalInsets) * (1f - s) / 2f).dp
-            Modifier.fillMaxWidth().padding(horizontal = side).aspectRatio(aspect)
+            Modifier.fillMaxWidth().padding(horizontal = side).aspectRatio(aspect / hf)
         }
     }
     val height = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
     return Modifier
         .fillMaxWidth()
-        .height((natural * s).coerceAtMost(height * 0.52f * s).dp)
+        .height((natural * s * hf).coerceAtMost(height * 0.52f * s * hf).dp)
 }
 
 /**
@@ -1163,7 +1166,12 @@ private fun HeroCompact(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height((148f * config.scale.coerceIn(0.5f, 1.5f)).dp)
+                    .height(
+                        (
+                            148f * config.scale.coerceIn(0.5f, 1.5f) *
+                                com.hikari.app.ui.HeaderPrefs.heightFactorFor(config.scale)
+                            ).coerceAtLeast(72f).dp
+                    )
                     .clickable { onClick(item) }
             ) {
                 HeroArtwork(
