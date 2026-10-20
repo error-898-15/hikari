@@ -90,7 +90,10 @@ fun TvCinematicHero(
         // viewport (capped well below fullscreen) so shelves stay visible
         // under it, the way the reference client's home looks. The user's own
         // hero-size setting still scales it from here.
-        val h = (((maxHeight * 0.36f).value * scale.coerceIn(0.5f, 1.5f)).coerceIn(140f, 460f)).dp
+        // Settings → Featured banner → Header height scales this on top (1f = as
+        // before), so the banner can be made shorter or taller on a television.
+        val h = ((((maxHeight * 0.36f).value * scale.coerceIn(0.5f, 1.5f)).coerceIn(140f, 460f)) *
+            com.hikari.app.ui.HeaderPrefs.heightFactor).coerceIn(110f, 640f).dp
         Box(
             modifier = Modifier
                 .fillMaxWidth()
