@@ -3840,116 +3840,36 @@ fun DetailScreen(
     }
     val tvHeroImage = m?.let { Artwork.heroModel(it) }
         ?: (PosterLoader.model(posterUrl) to false)
-
                     val tvPlayRow: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { topPad ->
-                    Row(
-                        Modifier.padding(top = topPad),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Button(
-                            onClick = { tryPlay(detailBtnEp) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = Color.Black,
-                            ),
-                            shape = RoundedCornerShape(50),
-                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
-                            modifier = Modifier
-                                .focusRequester(playFocus)
-                                .tvPress(
-                                    previewPass = true,
-                                    onClick = { tryPlay(detailBtnEp) }
-                                )
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(22.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(detailActionLabel, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
-                        extras?.trailers?.firstOrNull()?.let { tvTrailer ->
-                            OutlinedButton(
-                                onClick = {
+                        val tvTrailer = extras?.trailers?.firstOrNull()
+                        TvDetailNuvioPlayRow(
+                            playFocus = playFocus,
+                            isSaved = isSaved,
+                            hasTrailer = tvTrailer != null,
+                            onPlay = { tryPlay(detailBtnEp) },
+                            onSave = openLibrary,
+                            onTrailer = {
+                                if (tvTrailer != null) {
                                     openYouTubeVideo(
                                         context,
                                         tvTrailer.youtubeKey,
-                                        (m?.title ?: title) + " — " + tvTrailer.name
+                                        (m?.title ?: title) + " — " + tvTrailer.name,
                                     )
-                                },
-                                shape = CircleShape,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = Color.Black.copy(alpha = 0.4f),
-                                    contentColor = Color.White,
-                                ),
-                                contentPadding = PaddingValues(12.dp),
-                                modifier = Modifier.size(48.dp).tvPress(
-                                    previewPass = true,
-                                    onClick = {
-                                        openYouTubeVideo(
-                                            context,
-                                            tvTrailer.youtubeKey,
-                                            (m?.title ?: title) + " — " + tvTrailer.name
-                                        )
-                                    }
-                                )
-                            ) {
-                                Icon(Icons.Filled.OndemandVideo, contentDescription = tr("Trailer"), modifier = Modifier.size(20.dp))
-                            }
-                        }
-                        OutlinedButton(
-                            onClick = { openDlChoice() },
-                            shape = CircleShape,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = Color.Black.copy(alpha = 0.4f),
-                                contentColor = Color.White,
-                            ),
-                            contentPadding = PaddingValues(12.dp),
-                            modifier = Modifier.size(48.dp).tvPress(
-                                previewPass = true,
-                                onClick = { openDlChoice() }
-                            )
-                        ) {
-                            Icon(Icons.Filled.Download, contentDescription = tr("Download"), modifier = Modifier.size(20.dp))
-                        }
-                        OutlinedButton(
-                            onClick = openLibrary,
-                            shape = CircleShape,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isSaved) Color.White else Color.Black.copy(alpha = 0.4f),
-                                contentColor = if (isSaved) Color.Black else Color.White,
-                            ),
-                            contentPadding = PaddingValues(12.dp),
-                            modifier = Modifier.size(48.dp).tvPress(
-                                previewPass = true,
-                                onClick = openLibrary,
-                            )
-                        ) {
-                            Icon(if (isSaved) Icons.Filled.CheckCircle else Icons.Filled.FavoriteBorder, contentDescription = tr("Save"), modifier = Modifier.size(20.dp))
-                        }
-                    }
+                                }
+                            },
+                            onDownload = { openDlChoice() },
+                            modifier = Modifier.padding(top = topPad),
+                        )
                     }
     val heroBlock: @Composable () -> Unit = {
         if (isTvLayout) {
-            // TV detail is a single cinematic hero: artwork, title, metadata,
-            // overview and the primary action live in the same focusable scene.
             val tvHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * if (episodePosterStyle) 0.52f else 0.66f).dp
             Box(
                 Modifier
                     .fillMaxWidth()
                     .height(tvHeight.coerceAtLeast(380.dp))
-                    
                     .onSizeChanged { headerPx = it.height }
             ) {
-                // "Full bleed and blur detail" paints the sharp art HERE, in
-                // the scrolling hero item itself: the art scrolls up and away
-                // with the header (like the reference client) and everything
-                // below moves over the fixed blurred backdrop. Painting it in
-                // the fixed backdrop instead left sharp art behind the cast
-                // forever, which is why the toggle looked like it did
-                // nothing. Off (or phone): the hero stays transparent and the
-                // fixed backdrop owns the art, exactly as before.
                 if (tvBlurDetail) {
                     AsyncImage(
                         model = tvHeroImage.first,
@@ -3958,10 +3878,6 @@ fun DetailScreen(
                         alignment = Alignment.TopCenter,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    // Melt the header's bottom edge into the blur behind it
-                    // instead of ending in a seam: the melt runs to fully
-                    // opaque black at the hero boundary, so only black meets
-                    // the darkened blur below — no sharp-vs-blur colour line.
                     Box(
                         Modifier.fillMaxSize().background(
                             Brush.verticalGradient(
@@ -4225,116 +4141,24 @@ fun DetailScreen(
                         }
                     }
                 }
-                Column(
-                    Modifier
+                                TvDetailNuvioHeroColumn(
+                    artTitle = artTitle,
+                    heroLogo = heroLogo,
+                    displayOverview = displayOverview,
+                    meta = m,
+                    extras = extras,
+                    playRow = { tvPlayRow(0.dp) },
+                    modifier = Modifier
                         .align(if (episodePosterStyle) Alignment.BottomStart else Alignment.CenterStart)
                         .fillMaxWidth(if (episodePosterStyle) 0.58f else 0.52f)
                         .padding(
                             start = 42.dp,
                             end = 12.dp,
                             top = if (episodePosterStyle) 0.dp else 42.dp,
-                            bottom = if (episodePosterStyle) 16.dp else 24.dp,
-                        )
-                ) {
-                    if (!heroLogo.isNullOrBlank()) {
-                        AsyncImage(
-                            model = heroLogo,
-                            contentDescription = artTitle,
-                            contentScale = ContentScale.Fit,
-                            alignment = Alignment.CenterStart,
-                            modifier = Modifier.fillMaxWidth(0.70f).heightIn(max = 120.dp)
-                        )
-                    } else {
-                        Text(
-                            artTitle,
-                            style = MaterialTheme.typography.displayMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    if (!detailIsSeries) {
-                        tvPlayRow(0.dp)
-                        Spacer(Modifier.height(14.dp))
-                    }
-                    if (!displayOverview.isNullOrBlank()) {
-                        var tvOverviewFull by remember(displayOverview) { mutableStateOf(false) }
-                        Text(
-                            displayOverview!! + if (!tvOverviewFull && displayOverview.length > 160) "  [more]" else "",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Color.White.copy(alpha = 0.86f),
-                            maxLines = if (tvOverviewFull) Int.MAX_VALUE else 3,
-                            overflow = TextOverflow.Ellipsis,
-                            lineHeight = 22.sp,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { tvOverviewFull = !tvOverviewFull },
-                        )
-                        Spacer(Modifier.height(12.dp))
-                    }
-                    val tvMeta = buildList {
-                        if (m?.genres?.isNotEmpty() == true) add(m.genres.take(3).joinToString(" • "))
-                        m?.year?.let { add(it.toString()) }
-                        extras?.details?.runtimeMinutes?.let { mins ->
-                            add(if (mins >= 60) (mins / 60).toString()+"h "+(mins % 60).toString()+"m" else mins.toString()+"m")
-                        }
-                    }.joinToString("  •  ")
-                    if (tvMeta.isNotBlank()) {
-                        Text(
-                            tvMeta,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = Color.White.copy(alpha = 0.72f),
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    extras?.companies?.takeIf { it.isNotEmpty() }?.let { tvCompanies ->
-                        TvCompanyRow(tvCompanies) { c ->
-                            val spec = TmdbSpec(
-                                type = if (c.isNetwork) TmdbSourceType.NETWORK
-                                else TmdbSourceType.COMPANY,
-                                id = c.id,
-                                media = if (c.isNetwork) "tv" else "all",
-                                sort = "popularity.desc",
-                                title = c.name,
-                            )
-                            Routes.safeNavigate(nav, Routes.tmdbGridSpec(spec.encode(), c.name))
-                        }
-                    }
-                    val tvCert = extras?.details?.certification?.trim()?.takeIf { it.isNotEmpty() }
-                    if (showDetailRating && (ratings.isNotEmpty() || !tvCert.isNullOrBlank())) {
-                        FlowRow(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(top = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            if (!tvCert.isNullOrBlank()) com.hikari.app.tv.TvCertChip(tvCert)
-                            ratings.forEach { r -> RatingBadge(r) { ratingInfo = r } }
-                        }
-                    } else if (!tvCert.isNullOrBlank()) {
-                        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            com.hikari.app.tv.TvCertChip(tvCert)
-                        }
-                    }
-                    Row(
-                        Modifier.padding(top = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (markWatched) {
-                            MarkChip(tr("Watched"), active = true) { markSheet = true }
-                        }
-                        if (markWatching) MarkChip(tr("Watching"), active = true) { markSheet = true }
-                        if (markLater) MarkChip(tr("Watch later"), active = true) { markSheet = true }
-                        MarkChip(
-                            if (markAnything) tr("Change") else tr("Mark"),
-                            active = false,
-                        ) { markSheet = true }
-                    }
-                }
+                            bottom = if (episodePosterStyle) 20.dp else 24.dp,
+                        ),
+                )
+
             }
         } else {
             Box(Modifier.fillMaxWidth().onSizeChanged { headerPx = it.height }) {
@@ -4453,7 +4277,7 @@ fun DetailScreen(
                         )
                     )
                 )
-                Box(
+                                Box(
                     Modifier.fillMaxSize().background(
                         Brush.horizontalGradient(
                             0f to Color.Black.copy(alpha = 0.94f),
@@ -4959,39 +4783,55 @@ fun DetailScreen(
                 // (year · runtime · certification · rating) plus status/country/
                 // language and the director/writer credits. Renders only once
                 // the background TMDB lookup has landed.
-                extras?.details?.let { det ->
+                                if (!isTvLayout) extras?.details?.let { det ->
                     item {
                         DetailsBlock(
                             d = det,
-                            // TV already shows ratings + year/runtime/cert in
-                            // the hero (reference layout) — the block below
-                            // keeps only status/country/language/votes/
-                            // release/director/writers so nothing shows twice.
-                            ratings = if (showDetailRating && !isTvLayout) ratings else emptyList(),
-                            hideHeadline = isTvLayout,
-                            // The callback stays wired for when the strip
-                            // comes back (setting on, phone layout).
+                            ratings = if (showDetailRating) ratings else emptyList(),
+                            hideHeadline = false,
                             onRatingClick = { ratingInfo = it },
                         )
                     }
                 }
-                // Production companies / networks — one tap opens everything
-                // that studio or network made (a TMDB entity grid; see the
-                // TmdbSourceType.COMPANY/NETWORK queries). It sits ABOVE the cast
-                // row, the order the reference client uses. Phone-only: TV
-                // reads them in the hero's own plate row (reference layout),
-                // so the page row below would show every studio twice — and
-                // the row is skipped when the lookup found nothing.
-                if (!isTvLayout) extras?.companies?.takeIf { it.isNotEmpty() }?.let { companies ->
+                val extrasNow = extras
+                if (extrasNow != null && extrasNow.cast.isNotEmpty()) {
+                    val cast = extrasNow.cast
+                    val characters = extrasNow.castIsCharacters
+                    item {
+                        if (isTvLayout) {
+                            val tvTrailer = extrasNow.trailers.firstOrNull()
+                            TvDetailNuvioCastRow(
+                                cast = cast,
+                                hasTrailer = tvTrailer != null,
+                                onCastClick = { member ->
+                                    val query = if (characters) member.character ?: member.name else member.name
+                                    Routes.safeNavigate(nav, Routes.searchQuery(query))
+                                },
+                                onTrailerClick = {
+                                    if (tvTrailer != null) {
+                                        openYouTubeVideo(
+                                            context,
+                                            tvTrailer.youtubeKey,
+                                            (m?.title ?: title) + " — " + tvTrailer.name,
+                                        )
+                                    }
+                                },
+                            )
+                        } else {
+                            CastRow(cast, characters = characters) { member ->
+                                val query = if (characters) member.character ?: member.name else member.name
+                                Routes.safeNavigate(nav, Routes.searchQuery(query))
+                            }
+                        }
+                    }
+                }
+                extras?.companies?.takeIf { it.isNotEmpty() }?.let { companies ->
                     item {
                         ProductionRow(companies) { c ->
                             val spec = TmdbSpec(
                                 type = if (c.isNetwork) TmdbSourceType.NETWORK
                                 else TmdbSourceType.COMPANY,
                                 id = c.id,
-                                // A network only ever has series; a studio has
-                                // both, and "all" makes the grid merge its films
-                                // and its shows into one row.
                                 media = if (c.isNetwork) "tv" else "all",
                                 sort = "popularity.desc",
                                 title = c.name,
@@ -5000,38 +4840,9 @@ fun DetailScreen(
                         }
                     }
                 }
-                // Cast + Trailers sit ABOVE the episode list — the order the
-                // Nuvio/Stremio detail page uses. Below it they were buried under
-                // a 30-episode season (or below the fold of a long overview) and
-                // read as "the sections are missing". Both come from the same
-                // background TMDB call, and each row is skipped entirely when
-                // that lookup found nothing.
-                // A local read of the delegated property: a `by remember` value
-                // cannot be smart-cast, so the null check happens on a plain val.
-                val extrasNow = extras
-                if (extrasNow != null && extrasNow.cast.isNotEmpty()) {
-                    // For an anime, `cast` holds the characters (with the
-                    // Japanese voice actors as their second line) — see
-                    // AnimeCast. The row says which one it is showing.
-                    val cast = extrasNow.cast
-                    val characters = extrasNow.castIsCharacters
-                    item {
-                        CastRow(cast, characters = characters) { member ->
-                            // A character cell searches their ACTOR (the
-                            // searchable name); a cast cell searches the actor
-                            // it already is.
-                            val query = if (characters) member.character ?: member.name else member.name
-                            Routes.safeNavigate(nav, Routes.searchQuery(query))
-                        }
-                    }
-                }
-                extras?.trailers?.takeIf { it.isNotEmpty() }?.let { trailers ->
+                if (!isTvLayout) extras?.trailers?.takeIf { it.isNotEmpty() }?.let { trailers ->
                     item {
                         TrailerRow(trailers) { trailer ->
-                            // Trailers hand off to the YouTube app instead of
-                            // playing in Hikari's WebView: YouTube redirects to
-                            // m.youtube.com and the WebView's redirect
-                            // protection blocks that, leaving a black page.
                             openYouTubeVideo(
                                 context,
                                 trailer.youtubeKey,
@@ -5040,6 +4851,7 @@ fun DetailScreen(
                         }
                     }
                 }
+
                 if (isSeries && !isTvLayout) {
                     // A Vega series' pack picker (audio variants, seasons,
                     // season+quality rows — the provider's own titles, verbatim,
@@ -5350,59 +5162,86 @@ fun DetailScreen(
                 // the closest thing to "more of exactly this".
                 extras?.collection?.takeIf { it.items.isNotEmpty() }?.let { coll ->
                     item {
-                        ShelfRow(
-                            heading = coll.name.ifBlank { tr("Collection") },
-                            shelf = coll.items,
-                            onClick = { openShelfItem(it) },
-                            onSearchHere = {
-                                Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
-                            },
-                            onGlobalSearch = {
-                                Routes.safeNavigate(nav, Routes.searchQuery(it.title))
-                            },
-                        )
+                                         extras?.collection?.takeIf { it.items.isNotEmpty() }?.let { coll ->
+                    item {
+                        if (isTvLayout) {
+                            com.hikari.app.tv.TvCinemaRow(
+                                title = coll.name.ifBlank { tr("Collection") },
+                                providerName = "",
+                                items = coll.items,
+                                onOpen = { openShelfItem(it) },
+                                vertical = false,
+                            )
+                        } else {
+                            ShelfRow(
+                                heading = coll.name.ifBlank { tr("Collection") },
+                                shelf = coll.items,
+                                onClick = { openShelfItem(it) },
+                                onSearchHere = {
+                                    Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
+                                },
+                                onGlobalSearch = {
+                                    Routes.safeNavigate(nav, Routes.searchQuery(it.title))
+                                },
+                            )
+                        }
                     }
                 }
-                // Same-title shelves from TMDB — the Nuvio detail page's
-                // Related/Similar tabs, as inline rows. They show up only once
-                // the background lookup lands, and only when it found titles
-                // that actually have artwork, so a miss leaves no empty row.
                 if (related.isNotEmpty()) {
                     item {
-                        ShelfRow(
-                            heading = tr("Related"),
-                            shelf = related,
-                            onClick = { openShelfItem(it) },
-                            onSearchHere = {
-                                Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
-                            },
-                            onGlobalSearch = {
-                                Routes.safeNavigate(nav, Routes.searchQuery(it.title))
-                            },
-                        )
+                        if (isTvLayout) {
+                            com.hikari.app.tv.TvCinemaRow(
+                                title = tr("More like this"),
+                                providerName = "",
+                                items = related,
+                                onOpen = { openShelfItem(it) },
+                                vertical = false,
+                            )
+                        } else {
+                            ShelfRow(
+                                heading = tr("Related"),
+                                shelf = related,
+                                onClick = { openShelfItem(it) },
+                                onSearchHere = {
+                                    Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
+                                },
+                                onGlobalSearch = {
+                                    Routes.safeNavigate(nav, Routes.searchQuery(it.title))
+                                },
+                            )
+                        }
                     }
                 }
                 if (similar.isNotEmpty()) {
                     item {
-                        ShelfRow(
-                            heading = tr("Similar"),
-                            shelf = similar,
-                            onClick = { openShelfItem(it) },
-                            onSearchHere = {
-                                Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
-                            },
-                            onGlobalSearch = {
-                                Routes.safeNavigate(nav, Routes.searchQuery(it.title))
-                            },
-                        )
+                        if (isTvLayout) {
+                            com.hikari.app.tv.TvCinemaRow(
+                                title = tr("Similar"),
+                                providerName = "",
+                                items = similar,
+                                onOpen = { openShelfItem(it) },
+                                vertical = false,
+                            )
+                        } else {
+                            ShelfRow(
+                                heading = tr("Similar"),
+                                shelf = similar,
+                                onClick = { openShelfItem(it) },
+                                onSearchHere = {
+                                    Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
+                                },
+                                onGlobalSearch = {
+                                    Routes.safeNavigate(nav, Routes.searchQuery(it.title))
+                                },
+                            )
+                        }
                     }
                 }
                 item { Spacer(Modifier.height(24.dp)) }
             }
         }
     }
-    }
-
+            }
     // The way OUT of the page is never allowed to scroll off: the header's own
     // back button is drawn inside the art, so this one takes over from the same
     // corner, at the same size, as soon as the art is mostly gone.
@@ -5427,7 +5266,7 @@ fun DetailScreen(
     // the page's own box rather than inside the scrolling list, which is what
     // makes it "not move with the image": the art goes, the title stays.
     val logoArt = heroLogo
-    if (!logoArt.isNullOrBlank() && !(isTvLayout && episodePosterStyle)) {
+      if (!logoArt.isNullOrBlank() && !isTvLayout) {
         // [logoFrac] (above) is the width this frame's wordmark is fitted into:
         // bigger setting = bigger logo, at BOTH ends of the scroll. Its height
         // follows the art's aspect ratio, so this is "bigger logo", never
@@ -8701,5 +8540,371 @@ private fun MarkChip(
             color = if (active) scheme.primary else scheme.onSurfaceVariant,
             maxLines = 1,
         )
+    }
+}
+@Composable
+private fun TvDetailNuvioPlayRow(
+    playFocus: androidx.compose.ui.focus.FocusRequester,
+    isSaved: Boolean,
+    hasTrailer: Boolean,
+    onPlay: () -> Unit,
+    onSave: () -> Unit,
+    onTrailer: () -> Unit,
+    onDownload: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Button(
+            onClick = onPlay,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.White,
+                contentColor = Color.Black,
+            ),
+            shape = RoundedCornerShape(50),
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier
+                .width(96.dp)
+                .height(44.dp)
+                .focusRequester(playFocus)
+                .tvPress(previewPass = true, onClick = onPlay),
+        ) {
+            Icon(
+                Icons.Filled.PlayArrow,
+                contentDescription = tr("Play"),
+                modifier = Modifier.size(24.dp),
+            )
+        }
+
+        OutlinedButton(
+            onClick = onSave,
+            shape = CircleShape,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.30f)),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = if (isSaved) Color.White else Color.White.copy(alpha = 0.14f),
+                contentColor = if (isSaved) Color.Black else Color.White,
+            ),
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier
+                .size(44.dp)
+                .tvPress(previewPass = true, onClick = onSave),
+        ) {
+            if (isSaved) {
+                Icon(Icons.Filled.CheckCircle, contentDescription = tr("Saved"), modifier = Modifier.size(20.dp))
+            } else {
+                Text("+", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+
+        if (hasTrailer) {
+            OutlinedButton(
+                onClick = onTrailer,
+                shape = CircleShape,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.30f)),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = Color.White.copy(alpha = 0.14f),
+                    contentColor = Color.White,
+                ),
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier
+                    .size(44.dp)
+                    .tvPress(previewPass = true, onClick = onTrailer),
+            ) {
+                Icon(Icons.Filled.OndemandVideo, contentDescription = tr("Trailer"), modifier = Modifier.size(19.dp))
+            }
+        }
+
+        OutlinedButton(
+            onClick = onDownload,
+            shape = CircleShape,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.30f)),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = Color.White.copy(alpha = 0.14f),
+                contentColor = Color.White,
+            ),
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier
+                .size(44.dp)
+                .tvPress(previewPass = true, onClick = onDownload),
+        ) {
+            Icon(Icons.Filled.Download, contentDescription = tr("Download"), modifier = Modifier.size(19.dp))
+        }
+    }
+}
+
+@Composable
+private fun TvDetailNuvioHeroColumn(
+    artTitle: String,
+    heroLogo: String?,
+    displayOverview: String?,
+    meta: MediaItem?,
+    extras: TitleExtras?,
+    playRow: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val det = extras?.details
+    val director = det?.director?.trim()?.takeIf { it.isNotBlank() }
+    val releaseDateText = det?.releaseDate?.trim()?.takeIf { it.isNotBlank() }?.let { formatReleaseDate(it) }
+        ?: (det?.year ?: meta?.year)?.toString()
+    val statusText = det?.status?.trim()?.takeIf { it.isNotBlank() }?.uppercase()
+        ?: if (meta?.type == MediaType.SERIES) "ONGOING" else "RELEASED"
+    val certText = det?.certification?.trim()?.takeIf { it.isNotEmpty() }
+    val countryText = det?.country?.trim()?.takeIf { it.isNotBlank() }
+    val langText = det?.language?.trim()?.takeIf { it.isNotBlank() }?.uppercase()
+    val scoreValue = det?.rating?.takeIf { it > 0.0 } ?: meta?.rating?.takeIf { it > 0.0 }
+
+    Column(modifier = modifier) {
+        if (!heroLogo.isNullOrBlank()) {
+            AsyncImage(
+                model = PosterLoader.model(heroLogo),
+                contentDescription = artTitle,
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.CenterStart,
+                modifier = Modifier
+                    .fillMaxWidth(0.65f)
+                    .heightIn(max = 112.dp),
+            )
+        } else {
+            Text(
+                artTitle,
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+        playRow()
+        Spacer(Modifier.height(16.dp))
+
+        if (director != null) {
+            Text(
+                "Director: $director",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White.copy(alpha = 0.90f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
+        if (!displayOverview.isNullOrBlank()) {
+            var expanded by remember(displayOverview) { mutableStateOf(false) }
+            Text(
+                displayOverview,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.88f),
+                maxLines = if (expanded) Int.MAX_VALUE else 3,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 20.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+            )
+            Spacer(Modifier.height(14.dp))
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            val line1 = buildList {
+                if (meta?.genres?.isNotEmpty() == true) {
+                    add(meta.genres.take(3).joinToString(" • "))
+                }
+                if (!releaseDateText.isNullOrBlank()) {
+                    add(releaseDateText)
+                }
+            }.joinToString("   •   ")
+
+            if (line1.isNotBlank()) {
+                Text(
+                    line1,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White.copy(alpha = 0.90f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (scoreValue != null) {
+                if (line1.isNotBlank()) {
+                    Text("•", color = Color.White.copy(alpha = 0.65f), fontWeight = FontWeight.Bold)
+                }
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF01B4E4).copy(alpha = 0.22f))
+                        .border(1.dp, Color(0xFF01B4E4).copy(alpha = 0.65f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        "TMDB",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF5CE1E6),
+                    )
+                }
+                Text(
+                    "%.1f".format(scoreValue),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            val badgeLabel = if (certText != null) "$certText  |  $statusText" else statusText
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .border(1.dp, Color.White.copy(alpha = 0.42f), RoundedCornerShape(5.dp))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    badgeLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
+
+            val line2 = buildList {
+                det?.runtimeMinutes?.takeIf { it > 0 }?.let { mins ->
+                    add(if (mins >= 60) "${mins / 60}h ${mins % 60}m" else "${mins}m")
+                }
+                if (countryText != null) add(countryText)
+                if (langText != null) add(langText)
+            }.joinToString("   •   ")
+
+            if (line2.isNotBlank()) {
+                Text(
+                    "•   $line2",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White.copy(alpha = 0.85f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvDetailNuvioCastRow(
+    cast: List<CastMember>,
+    hasTrailer: Boolean,
+    onCastClick: (CastMember) -> Unit,
+    onTrailerClick: () -> Unit,
+) {
+    if (cast.isEmpty()) return
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 18.dp, bottom = 8.dp)
+    ) {
+        Row(
+            Modifier.padding(horizontal = 42.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                "Creator and Cast",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+            )
+            Text("|", color = Color.White.copy(alpha = 0.35f), style = MaterialTheme.typography.titleMedium)
+            Text(
+                "More like this",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White.copy(alpha = 0.65f),
+            )
+            if (hasTrailer) {
+                Text("|", color = Color.White.copy(alpha = 0.35f), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Trailer",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White.copy(alpha = 0.65f),
+                    modifier = Modifier.clickable { onTrailerClick() },
+                )
+            }
+        }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 42.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(22.dp),
+        ) {
+            itemsIndexed(cast) { _, member ->
+                Column(
+                    modifier = Modifier
+                        .width(104.dp)
+                        .clickable { onCastClick(member) }
+                        .tvPress(previewPass = true, onClick = { onCastClick(member) }),
+                    horizontalAlignment = Alignment.Start,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(96.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.12f))
+                            .border(1.5.dp, Color.White.copy(alpha = 0.28f), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val profile = PosterLoader.model(member.profileUrl)
+                        if (profile != null) {
+                            AsyncImage(
+                                model = profile,
+                                contentDescription = member.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            )
+                        } else {
+                            Text(
+                                member.name.trim().take(1).uppercase(),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        member.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    member.character?.takeIf { it.isNotBlank() }?.let { role ->
+                        Text(
+                            role,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.68f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
