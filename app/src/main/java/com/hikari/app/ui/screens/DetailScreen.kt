@@ -5160,12 +5160,10 @@ fun DetailScreen(
                 // shows it ("Shrek Collection"), with its other parts in release
                 // order. It sits directly above Related/Similar: a collection is
                 // the closest thing to "more of exactly this".
-                extras?.collection?.takeIf { it.items.isNotEmpty() }?.let { coll ->
-                    item {
-                                         extras?.collection?.takeIf { it.items.isNotEmpty() }?.let { coll ->
+extras?.collection?.takeIf { it.items.isNotEmpty() }?.let { coll ->
     item {
         if (isTvLayout) {
-            com.hikari.app.tv.TvCinemaRow(
+            com.hikari.app.tv.TvCinemaRow(                                                         
                                 title = coll.name.ifBlank { tr("Collection") },
                                 providerName = "",
                                 items = coll.items,
