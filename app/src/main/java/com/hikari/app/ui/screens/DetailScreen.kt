@@ -3844,17 +3844,17 @@ fun DetailScreen(
                     val tvPlayRow: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { topPad ->
                     Row(
                         Modifier.padding(top = topPad),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Button(
                             onClick = { tryPlay(detailBtnEp) },
-                            // The reference look: a solid white pill with a
-                            // dark label, readable from the sofa at a glance.
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color.White,
                                 contentColor = Color.Black,
                             ),
+                            shape = RoundedCornerShape(50),
+                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
                             modifier = Modifier
                                 .focusRequester(playFocus)
                                 .tvPress(
@@ -3862,14 +3862,12 @@ fun DetailScreen(
                                     onClick = { tryPlay(detailBtnEp) }
                                 )
                         ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(22.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(detailActionLabel)
+                            Text(detailActionLabel, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
-                        // Trailer beside Play, like the reference layout: opens
-                        // the title's own trailer instead of scrolling for it.
                         extras?.trailers?.firstOrNull()?.let { tvTrailer ->
-                            FilledTonalButton(
+                            OutlinedButton(
                                 onClick = {
                                     openYouTubeVideo(
                                         context,
@@ -3877,7 +3875,14 @@ fun DetailScreen(
                                         (m?.title ?: title) + " — " + tvTrailer.name
                                     )
                                 },
-                                modifier = Modifier.tvPress(
+                                shape = CircleShape,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = Color.Black.copy(alpha = 0.4f),
+                                    contentColor = Color.White,
+                                ),
+                                contentPadding = PaddingValues(12.dp),
+                                modifier = Modifier.size(48.dp).tvPress(
                                     previewPass = true,
                                     onClick = {
                                         openYouTubeVideo(
@@ -3888,45 +3893,40 @@ fun DetailScreen(
                                     }
                                 )
                             ) {
-                                Icon(Icons.Filled.OndemandVideo, contentDescription = tr("Trailer"))
+                                Icon(Icons.Filled.OndemandVideo, contentDescription = tr("Trailer"), modifier = Modifier.size(20.dp))
                             }
                         }
-                        FilledTonalButton(
+                        OutlinedButton(
                             onClick = { openDlChoice() },
-                            modifier = Modifier.tvPress(
+                            shape = CircleShape,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color.Black.copy(alpha = 0.4f),
+                                contentColor = Color.White,
+                            ),
+                            contentPadding = PaddingValues(12.dp),
+                            modifier = Modifier.size(48.dp).tvPress(
                                 previewPass = true,
                                 onClick = { openDlChoice() }
                             )
                         ) {
-                            // Material glyph, not the drawable: the drawable's
-                            // own white fill ignored the button's content color
-                            // and vanished on some TV themes (the "button with
-                            // no icon" report).
-                            Icon(Icons.Filled.Download, contentDescription = tr("Download"))
+                            Icon(Icons.Filled.Download, contentDescription = tr("Download"), modifier = Modifier.size(20.dp))
                         }
-                        // Save, mirroring the phone row's library toggle below:
-                        // the reference TV layout puts Play + Save side by
-                        // side, and the TV hero only had Play + Download.
-                        if (isSaved) {
-                            FilledTonalButton(
+                        OutlinedButton(
+                            onClick = openLibrary,
+                            shape = CircleShape,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isSaved) Color.White else Color.Black.copy(alpha = 0.4f),
+                                contentColor = if (isSaved) Color.Black else Color.White,
+                            ),
+                            contentPadding = PaddingValues(12.dp),
+                            modifier = Modifier.size(48.dp).tvPress(
+                                previewPass = true,
                                 onClick = openLibrary,
-                                modifier = Modifier.tvPress(
-                                    previewPass = true,
-                                    onClick = openLibrary,
-                                )
-                            ) {
-                                Icon(Icons.Filled.Favorite, contentDescription = null)
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = openLibrary,
-                                modifier = Modifier.tvPress(
-                                    previewPass = true,
-                                    onClick = openLibrary,
-                                )
-                            ) {
-                                Icon(Icons.Filled.FavoriteBorder, contentDescription = tr("Save"))
-                            }
+                            )
+                        ) {
+                            Icon(if (isSaved) Icons.Filled.CheckCircle else Icons.Filled.FavoriteBorder, contentDescription = tr("Save"), modifier = Modifier.size(20.dp))
                         }
                     }
                     }
@@ -4227,62 +4227,68 @@ fun DetailScreen(
                 }
                 Column(
                     Modifier
-                        .align(if (episodePosterStyle) Alignment.BottomStart else Alignment.TopStart)
-                        // Normal episode-list mode owns the right side of the TV hero.
-                        // Keep the detail text inside the remaining left area instead of
-                        // letting long overviews draw underneath the episode panel.
-                        .fillMaxWidth(if (episodePosterStyle) 1f else 0.60f)
+                        .align(if (episodePosterStyle) Alignment.BottomStart else Alignment.CenterStart)
+                        .fillMaxWidth(if (episodePosterStyle) 0.58f else 0.52f)
                         .padding(
                             start = 42.dp,
                             end = 12.dp,
-                            top = if (episodePosterStyle) 0.dp else 82.dp,
-                            bottom = if (episodePosterStyle) 12.dp else 0.dp,
+                            top = if (episodePosterStyle) 0.dp else 42.dp,
+                            bottom = if (episodePosterStyle) 16.dp else 24.dp,
                         )
                 ) {
                     if (!heroLogo.isNullOrBlank()) {
-                        AsyncImage(model = heroLogo, contentDescription = artTitle, contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxWidth(if (episodePosterStyle) 0.62f else 0.58f).heightIn(max = 108.dp))
+                        AsyncImage(
+                            model = heroLogo,
+                            contentDescription = artTitle,
+                            contentScale = ContentScale.Fit,
+                            alignment = Alignment.CenterStart,
+                            modifier = Modifier.fillMaxWidth(0.70f).heightIn(max = 120.dp)
+                        )
                     } else {
-                        Text(artTitle, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold,
-                            color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            artTitle,
+                            style = MaterialTheme.typography.displayMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
-                    Spacer(Modifier.height(10.dp))
-                    // The watch state below the title, like the reference
-                    // layout's save row: one glance says Watching / Watch
-                    // later, and Change opens the same sheet as below.
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (markWatched) {
-                            MarkChip(tr("Watched"), active = true) { markSheet = true }
-                        }
-                        if (markWatching) {
-                            MarkChip(tr("Watching"), active = true) { markSheet = true }
-                        }
-                        if (markLater) {
-                            MarkChip(tr("Watch later"), active = true) { markSheet = true }
-                        }
-                        MarkChip(
-                            if (markAnything) tr("Change") else tr("Mark"),
-                            active = false,
-                        ) { markSheet = true }
+                    Spacer(Modifier.height(14.dp))
+                    if (!detailIsSeries) {
+                        tvPlayRow(0.dp)
+                        Spacer(Modifier.height(14.dp))
                     }
-                    Spacer(Modifier.height(10.dp))
-                    if (!detailIsSeries) tvPlayRow(12.dp)
-
+                    if (!displayOverview.isNullOrBlank()) {
+                        var tvOverviewFull by remember(displayOverview) { mutableStateOf(false) }
+                        Text(
+                            displayOverview!! + if (!tvOverviewFull && displayOverview.length > 160) "  [more]" else "",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color.White.copy(alpha = 0.86f),
+                            maxLines = if (tvOverviewFull) Int.MAX_VALUE else 3,
+                            overflow = TextOverflow.Ellipsis,
+                            lineHeight = 22.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { tvOverviewFull = !tvOverviewFull },
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
                     val tvMeta = buildList {
-                        m?.rating?.takeIf { it > 0 }?.let { add("★ " + "%.1f".format(it)) }
+                        if (m?.genres?.isNotEmpty() == true) add(m.genres.take(3).joinToString(" • "))
                         m?.year?.let { add(it.toString()) }
-                        if (m?.genres?.isNotEmpty() == true) add(m.genres.take(3).joinToString(" · "))
                         extras?.details?.runtimeMinutes?.let { mins ->
                             add(if (mins >= 60) (mins / 60).toString()+"h "+(mins % 60).toString()+"m" else mins.toString()+"m")
                         }
-                    }.joinToString("  ·  ")
-                    if (tvMeta.isNotBlank()) Text(tvMeta, style = MaterialTheme.typography.titleSmall,
-                        color = Color.White.copy(alpha = 0.92f), modifier = Modifier.padding(top = 8.dp))
-                    // Production, above the ratings: the reference layout's
-                    // studio row sits with the title block, not buried below.
+                    }.joinToString("  •  ")
+                    if (tvMeta.isNotBlank()) {
+                        Text(
+                            tvMeta,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                     extras?.companies?.takeIf { it.isNotEmpty() }?.let { tvCompanies ->
                         TvCompanyRow(tvCompanies) { c ->
                             val spec = TmdbSpec(
@@ -4296,43 +4302,37 @@ fun DetailScreen(
                             Routes.safeNavigate(nav, Routes.tmdbGridSpec(spec.encode(), c.name))
                         }
                     }
-                    // The review-score badges with the title block: the reference
-                    // TV layout leads with its ratings, and the strip used to
-                    // sit below the hero in the scroll.
                     val tvCert = extras?.details?.certification?.trim()?.takeIf { it.isNotEmpty() }
                     if (showDetailRating && (ratings.isNotEmpty() || !tvCert.isNullOrBlank())) {
-                        // Wraps instead of scrolling: every badge stays on
-                        // screen with no horizontal swipe (the cut-off "P…"
-                        // badge report).
                         FlowRow(
                             Modifier
                                 .fillMaxWidth()
-                                .padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                .padding(top = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            ratings.forEach { r -> RatingBadge(r) { ratingInfo = r } }
                             if (!tvCert.isNullOrBlank()) com.hikari.app.tv.TvCertChip(tvCert)
+                            ratings.forEach { r -> RatingBadge(r) { ratingInfo = r } }
                         }
                     } else if (!tvCert.isNullOrBlank()) {
-                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             com.hikari.app.tv.TvCertChip(tvCert)
                         }
                     }
-                    if (!displayOverview.isNullOrBlank()) {
-                        // Full text on tap: collapsed two lines by default, the
-                        // whole overview when opened — never a horizontal
-                        // scroll to read the end (same report as the badges).
-                        var tvOverviewFull by remember(displayOverview) { mutableStateOf(false) }
-                        Text(
-                            displayOverview!! + if (!tvOverviewFull && displayOverview.length > 140) "  [more]" else "",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.84f),
-                            maxLines = if (tvOverviewFull) Int.MAX_VALUE else if (episodePosterStyle) 4 else 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                                .clickable { tvOverviewFull = !tvOverviewFull },
-                        )
+                    Row(
+                        Modifier.padding(top = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (markWatched) {
+                            MarkChip(tr("Watched"), active = true) { markSheet = true }
+                        }
+                        if (markWatching) MarkChip(tr("Watching"), active = true) { markSheet = true }
+                        if (markLater) MarkChip(tr("Watch later"), active = true) { markSheet = true }
+                        MarkChip(
+                            if (markAnything) tr("Change") else tr("Mark"),
+                            active = false,
+                        ) { markSheet = true }
                     }
                 }
             }
@@ -4456,11 +4456,9 @@ fun DetailScreen(
                 Box(
                     Modifier.fillMaxSize().background(
                         Brush.horizontalGradient(
-                            listOf(
-                                Color.Black.copy(alpha = 0.40f),
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.26f),
-                            )
+                            0f to Color.Black.copy(alpha = 0.94f),
+                            0.42f to Color.Black.copy(alpha = 0.58f),
+                            0.75f to Color.Transparent,
                         )
                     )
                 )
