@@ -7,32 +7,24 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,12 +42,49 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.hikari.app.HikariApp
+import com.hikari.app.data.ContentRepository
 import com.hikari.app.data.MediaItem
 import com.hikari.app.data.MediaType
-import com.hikari.app.i18n.tr
+import com.hikari.app.data.TmdbMeta
 import com.hikari.app.ui.Artwork
+import com.hikari.app.ui.PosterLoader
 import com.hikari.app.ui.components.PosterImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
+private data class EnrichedHeroData(
+    val item: MediaItem,
+    val logoUrl: String?,
+    val certification: String?,
+    val status: String?,
+    val runtimeMinutes: Int?,
+    val releaseDate: String?,
+    val rating: Double?,
+)
+
+private object TvHeroEnrichCache {
+    val map = ConcurrentHashMap<String, EnrichedHeroData>()
+}
+
+private fun Any?.readHeroProp(vararg names: String): String? {
+    if (this == null) return null
+    for (n in names) {
+        val v = runCatching {
+            val getter = "get" + n.replaceFirstChar { it.uppercase() }
+            val m = this.javaClass.methods.firstOrNull {
+                it.name.equals(getter, ignoreCase = true) && it.parameterCount == 0
+            }
+            m?.invoke(this)
+        }.getOrNull()
+        if (v is String && v.isNotBlank()) return v.trim()
+    }
+    return null
+}
+
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun TvCinematicHero(
     items: List<MediaItem>,
@@ -67,18 +96,63 @@ fun TvCinematicHero(
     focusedItem: MediaItem? = TvHeroFocusState.focusedItem,
 ) {
     LaunchedEffect(items) {
-        TvHeroFocusState.focusedItem = null
+        if (TvHeroFocusState.focusedItem == null && items.isNotEmpty()) {
+            TvHeroFocusState.focusedItem = items.first()
+        }
     }
     if (items.isEmpty() && focusedItem == null) return
     var index by remember(items) { mutableIntStateOf(0) }
-    val item = focusedItem ?: items[index.coerceIn(items.indices)]
+    val rawItem = focusedItem ?: items[index.coerceIn(items.indices)]
+
+    var enriched by remember(rawItem.uniqueId) {
+        mutableStateOf(TvHeroEnrichCache.map[rawItem.uniqueId])
+    }
+
+    LaunchedEffect(rawItem.uniqueId) {
+        val cached = TvHeroEnrichCache.map[rawItem.uniqueId]
+        if (cached != null) {
+            enriched = cached
+            return@LaunchedEffect
+        }
+        withContext(Dispatchers.IO) {
+            val repo = runCatching { ContentRepository(HikariApp.instance.providers) }.getOrNull()
+            val fullMeta = runCatching { repo?.metaFor(rawItem) }.getOrNull() ?: rawItem
+            val mergedItem = fullMeta.copy(
+                title = rawItem.title.ifBlank { fullMeta.title },
+                posterUrl = fullMeta.posterUrl ?: rawItem.posterUrl,
+                backdropUrl = fullMeta.backdropUrl ?: rawItem.backdropUrl,
+                overview = fullMeta.overview?.ifBlank { rawItem.overview } ?: rawItem.overview,
+                genres = if (fullMeta.genres.isNotEmpty()) fullMeta.genres else rawItem.genres,
+                year = fullMeta.year ?: rawItem.year,
+                rating = fullMeta.rating ?: rawItem.rating,
+            )
+            val logo = runCatching { TmdbMeta.logo(mergedItem) }.getOrNull()
+            val ex = runCatching { TmdbMeta.extras(mergedItem) }.getOrNull()
+            val det = ex?.details
+            val finalOverview = ex?.overview?.takeIf { it.isNotBlank() } ?: mergedItem.overview
+            val finalRating = det?.rating?.takeIf { it > 0.0 } ?: mergedItem.rating
+            val data = EnrichedHeroData(
+                item = mergedItem.copy(overview = finalOverview, rating = finalRating),
+                logoUrl = logo,
+                certification = det?.certification?.trim()?.takeIf { it.isNotBlank() },
+                status = det.readHeroProp("status", "releaseStatus"),
+                runtimeMinutes = det?.runtimeMinutes?.takeIf { it > 0 },
+                releaseDate = det.readHeroProp("releaseDate", "released", "firstAirDate"),
+                rating = finalRating,
+            )
+            TvHeroEnrichCache.map[rawItem.uniqueId] = data
+            enriched = data
+        }
+    }
+
+    val item = enriched?.item ?: rawItem
+    val logoUrl = enriched?.logoUrl
     val art = remember(item) { Artwork.heroModel(item) }
-    val scheme = MaterialTheme.colorScheme
-    val bg = scheme.background
+    val bg = MaterialTheme.colorScheme.background
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val h = ((((maxHeight * 0.42f).value * scale.coerceIn(0.5f, 1.5f)).coerceIn(190f, 480f)) *
-            com.hikari.app.ui.HeaderPrefs.heightFactor).coerceIn(160f, 640f).dp
+        val h = ((((maxHeight * 0.46f).value * scale.coerceIn(0.5f, 1.5f)).coerceIn(210f, 500f)) *
+            com.hikari.app.ui.HeaderPrefs.heightFactor).coerceIn(180f, 640f).dp
 
         Box(
             modifier = Modifier
@@ -103,6 +177,7 @@ fun TvCinematicHero(
                 }
                 .clickable { onOpen(item) },
         ) {
+            // ডান পাশে ওয়াইড ব্যাকড্রপ ইমেজ (1000263428.jpg স্টাইল)
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.76f)
@@ -118,169 +193,159 @@ fun TvCinematicHero(
                 )
             }
 
+            // বাম দিক থেকে ডানে স্মুথ ডার্ক গ্র্যাডিয়েন্ট
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(
                         Brush.horizontalGradient(
                             0f to bg,
-                            0.32f to bg.copy(alpha = 0.94f),
-                            0.58f to bg.copy(alpha = 0.45f),
-                            0.85f to Color.Transparent,
+                            0.34f to bg.copy(alpha = 0.95f),
+                            0.60f to bg.copy(alpha = 0.45f),
+                            0.88f to Color.Transparent,
                         )
                     )
             )
 
+            // নিচের দিকে স্মুথ ভার্টিকাল ফেড গ্র্যাডিয়েন্ট
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            0f to bg.copy(alpha = 0.35f),
-                            0.20f to Color.Transparent,
-                            0.65f to Color.Transparent,
+                            0f to bg.copy(alpha = 0.30f),
+                            0.25f to Color.Transparent,
+                            0.68f to Color.Transparent,
                             1f to bg,
                         )
                     )
             )
 
+            // বাম পাশের তথ্য (Title Logo -> Meta -> Badges -> Overview)
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
+                    .align(Alignment.CenterStart)
                     .fillMaxWidth(0.56f)
-                    .padding(start = 24.dp, end = 12.dp, bottom = 14.dp),
+                    .padding(start = 26.dp, end = 12.dp, bottom = 10.dp),
             ) {
-                Text(
-                    item.title,
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 38.sp,
-                )
+                if (!logoUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = PosterLoader.model(logoUrl),
+                        contentDescription = item.title,
+                        contentScale = ContentScale.Fit,
+                        alignment = Alignment.CenterStart,
+                        modifier = Modifier
+                            .fillMaxWidth(0.68f)
+                            .heightIn(max = 88.dp),
+                    )
+                } else {
+                    Text(
+                        item.title,
+                        style = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 36.sp,
+                    )
+                }
 
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(10.dp))
 
+                // মেটাডেটা লাইন ১: Movie • Romance • 1h 52m • 23 September 2026
                 Text(
-                    tvHeroMeta(item),
+                    buildHeroMetaLine(
+                        item = item,
+                        runtimeMinutes = enriched?.runtimeMinutes,
+                        releaseDate = enriched?.releaseDate,
+                        episodeSubtitle = TvHeroFocusState.focusedSubtitle,
+                    ),
                     style = MaterialTheme.typography.labelLarge,
-                    color = Color.White.copy(alpha = 0.85f),
+                    color = Color.White.copy(alpha = 0.88f),
+                    fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
 
                 Spacer(Modifier.height(8.dp))
 
+                // ব্যাজ সারি: [ R | RELEASED ] বা [ NEXT UP ] + হলুদ IMDb রেটিং
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    val typeBadge = when (item.type) {
-                        MediaType.SERIES -> "SERIES"
-                        MediaType.MOVIE -> "MOVIE"
-                        else -> item.rawType.uppercase().ifBlank { "MEDIA" }
+                    val badgeText = when {
+                        TvHeroFocusState.isContinueWatching -> "NEXT UP"
+                        !enriched?.certification.isNullOrBlank() && !enriched?.status.isNullOrBlank() ->
+                            "${enriched?.certification}  |  ${enriched?.status?.uppercase()}"
+                        !enriched?.certification.isNullOrBlank() ->
+                            "${enriched?.certification}  |  " + (if (item.type == MediaType.SERIES) "ONGOING" else "RELEASED")
+                        !enriched?.status.isNullOrBlank() ->
+                            enriched!!.status!!.uppercase()
+                        item.type == MediaType.SERIES -> "ONGOING"
+                        else -> "RELEASED"
                     }
                     Surface(
-                        color = Color.White.copy(alpha = 0.10f),
+                        color = Color.White.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(5.dp),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.38f)),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.42f)),
                     ) {
                         Text(
-                            typeBadge,
+                            badgeText,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }
 
-                    item.rating?.takeIf { it > 0 }?.let { r ->
+                    val score = enriched?.rating ?: item.rating
+                    score?.takeIf { it > 0 }?.let { r ->
                         TvHeroScoreChip("%.1f".format(r))
                     }
                 }
 
-                if (item.overview?.isNotBlank() == true) {
-                    Spacer(Modifier.height(8.dp))
+                if (!item.overview.isNullOrBlank()) {
+                    Spacer(Modifier.height(10.dp))
                     Text(
                         item.overview,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.80f),
+                        color = Color.White.copy(alpha = 0.85f),
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
-                        lineHeight = 19.sp,
+                        lineHeight = 20.sp,
                     )
                 }
-
-                Spacer(Modifier.height(12.dp))
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Button(
-                        onClick = { onOpen(item) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White,
-                            contentColor = Color.Black,
-                        ),
-                        shape = RoundedCornerShape(24.dp),
-                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
-                    ) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(tr("Play"), fontWeight = FontWeight.Bold)
-                    }
-                    if (onToggleBookmark != null) {
-                        val saved = item.uniqueId in bookmarkedIds
-                        OutlinedButton(
-                            onClick = { onToggleBookmark(item) },
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = Color.White,
-                            ),
-                            border = BorderStroke(
-                                1.dp,
-                                Color.White.copy(alpha = 0.45f),
-                            ),
-                            contentPadding = PaddingValues(
-                                horizontal = 14.dp,
-                                vertical = 8.dp,
-                            ),
-                        ) {
-                            Icon(
-                                if (saved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                                contentDescription = tr("Bookmark"),
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (focusedItem == null && items.size > 1) {
-                TvHeroDots(
-                    count = items.size,
-                    active = index,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 24.dp, bottom = 18.dp),
-                )
             }
         }
     }
 }
 
-private fun tvHeroMeta(item: MediaItem): String {
-    val parts = ArrayList<String>(5)
-    val kind = when (item.type) {
-        MediaType.SERIES -> "Series"
-        MediaType.MOVIE -> "Movie"
-        else -> item.rawType.replaceFirstChar { it.uppercase() }.ifBlank { "Media" }
+private fun buildHeroMetaLine(
+    item: MediaItem,
+    runtimeMinutes: Int?,
+    releaseDate: String?,
+    episodeSubtitle: String?,
+): String {
+    val parts = ArrayList<String>(6)
+    if (!episodeSubtitle.isNullOrBlank()) {
+        parts += episodeSubtitle
+    } else {
+        val kind = when (item.type) {
+            MediaType.SERIES -> "Series"
+            MediaType.MOVIE -> "Movie"
+            else -> item.rawType.replaceFirstChar { it.uppercase() }.ifBlank { "Movie" }
+        }
+        parts += kind
     }
-    parts += kind
-    parts += item.genres.take(3)
-    item.year?.let { parts += it.toString() }
+    parts += item.genres.take(2)
+    runtimeMinutes?.takeIf { it > 0 }?.let { mins ->
+        parts += if (mins >= 60) "${mins / 60}h ${mins % 60}m" else "${mins}m"
+    }
+    val dateOrYear = releaseDate?.takeIf { it.isNotBlank() } ?: item.year?.toString()
+    if (!dateOrYear.isNullOrBlank()) {
+        parts += if (item.type == MediaType.SERIES && dateOrYear.length == 4) "$dateOrYear–" else dateOrYear
+    }
     return parts.joinToString(" • ")
 }
 
@@ -288,7 +353,7 @@ private fun tvHeroMeta(item: MediaItem): String {
 private fun TvHeroScoreChip(text: String) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Surface(
             color = Color(0xFFF5C518),
@@ -304,26 +369,9 @@ private fun TvHeroScoreChip(text: String) {
         }
         Text(
             text,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Bold,
             color = Color.White,
         )
-    }
-}
-
-@Composable
-private fun TvHeroDots(count: Int, active: Int, modifier: Modifier = Modifier) {
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (i in 0 until count.coerceAtMost(8)) {
-            Box(
-                Modifier
-                    .size(width = if (i == active) 18.dp else 6.dp, height = 6.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(
-                        if (i == active) Color.White
-                        else Color.White.copy(alpha = 0.4f)
-                    )
-            )
-        }
     }
 }
