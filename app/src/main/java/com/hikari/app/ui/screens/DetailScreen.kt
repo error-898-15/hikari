@@ -5163,9 +5163,9 @@ fun DetailScreen(
                 extras?.collection?.takeIf { it.items.isNotEmpty() }?.let { coll ->
                     item {
                                          extras?.collection?.takeIf { it.items.isNotEmpty() }?.let { coll ->
-                    item {
-                        if (isTvLayout) {
-                            com.hikari.app.tv.TvCinemaRow(
+    item {
+        if (isTvLayout) {
+            com.hikari.app.tv.TvCinemaRow(
                                 title = coll.name.ifBlank { tr("Collection") },
                                 providerName = "",
                                 items = coll.items,
