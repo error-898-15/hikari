@@ -4314,23 +4314,22 @@ fun DetailScreen(
                     item(key = "hero") { heroBlock() }
                     if (isTvLayout && detailIsSeries && episodePosterStyle) {
                         item(key = "tv-poster-episodes") {
-                            Column(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .zIndex(2f)
-                                    .padding(
-                                        start = 20.dp,
-                                        end = 20.dp,
-                                        top = 6.dp,
-                                        bottom = 10.dp,
-                                    )
-                            ) {
-                                tvPlayRow(8.dp)
-                                Row(
-                                    Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .zIndex(2f)
+            .padding(
+                start = 20.dp,
+                end = 20.dp,
+                top = 6.dp,
+                bottom = 10.dp,
+            )
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
                                     Text(
                                         tr("Episodes (%s)").replace("%s", shownEps.size.toString()),
                                         style = MaterialTheme.typography.titleLarge,
