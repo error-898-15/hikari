@@ -3842,60 +3842,26 @@ fun DetailScreen(
         ?: (PosterLoader.model(posterUrl) to false)
 
                     val tvPlayRow: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { topPad ->
-                    Row(
-                        Modifier.padding(top = topPad),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Button(
-                            onClick = { tryPlay(detailBtnEp) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = Color.Black,
-                            ),
-                            shape = RoundedCornerShape(50),
-                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
-                            modifier = Modifier
-                                .focusRequester(playFocus)
-                                .tvPress(
-                                    previewPass = true,
-                                    onClick = { tryPlay(detailBtnEp) }
-                                )
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(22.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(detailActionLabel, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
-                        extras?.trailers?.firstOrNull()?.let { tvTrailer ->
-                            OutlinedButton(
-                                onClick = {
+                        val tvTrailer = extras?.trailers?.firstOrNull()
+                        com.hikari.app.tv.TvNuvioPlayRow(
+                            playFocus = playFocus,
+                            isSaved = isSaved,
+                            hasTrailer = tvTrailer != null,
+                            onPlay = { tryPlay(detailBtnEp) },
+                            onSave = openLibrary,
+                            onTrailer = {
+                                if (tvTrailer != null) {
                                     openYouTubeVideo(
                                         context,
                                         tvTrailer.youtubeKey,
-                                        (m?.title ?: title) + " — " + tvTrailer.name
+                                        (m?.title ?: title) + " — " + tvTrailer.name,
                                     )
-                                },
-                                shape = CircleShape,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = Color.Black.copy(alpha = 0.4f),
-                                    contentColor = Color.White,
-                                ),
-                                contentPadding = PaddingValues(12.dp),
-                                modifier = Modifier.size(48.dp).tvPress(
-                                    previewPass = true,
-                                    onClick = {
-                                        openYouTubeVideo(
-                                            context,
-                                            tvTrailer.youtubeKey,
-                                            (m?.title ?: title) + " — " + tvTrailer.name
-                                        )
-                                    }
-                                )
-                            ) {
-                                Icon(Icons.Filled.OndemandVideo, contentDescription = tr("Trailer"), modifier = Modifier.size(20.dp))
-                            }
-                        }
+                                }
+                            },
+                            onDownload = { openDlChoice() },
+                            modifier = Modifier.padding(top = topPad),
+                        )
+                    }
                         OutlinedButton(
                             onClick = { openDlChoice() },
                             shape = CircleShape,
@@ -4278,63 +4244,23 @@ fun DetailScreen(
                         if (m?.genres?.isNotEmpty() == true) add(m.genres.take(3).joinToString(" • "))
                         m?.year?.let { add(it.toString()) }
                         extras?.details?.runtimeMinutes?.let { mins ->
-                            add(if (mins >= 60) (mins / 60).toString()+"h "+(mins % 60).toString()+"m" else mins.toString()+"m")
-                        }
-                    }.joinToString("  •  ")
-                    if (tvMeta.isNotBlank()) {
-                        Text(
-                            tvMeta,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = Color.White.copy(alpha = 0.72f),
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    extras?.companies?.takeIf { it.isNotEmpty() }?.let { tvCompanies ->
-                        TvCompanyRow(tvCompanies) { c ->
-                            val spec = TmdbSpec(
-                                type = if (c.isNetwork) TmdbSourceType.NETWORK
-                                else TmdbSourceType.COMPANY,
-                                id = c.id,
-                                media = if (c.isNetwork) "tv" else "all",
-                                sort = "popularity.desc",
-                                title = c.name,
-                            )
-                            Routes.safeNavigate(nav, Routes.tmdbGridSpec(spec.encode(), c.name))
-                        }
-                    }
-                    val tvCert = extras?.details?.certification?.trim()?.takeIf { it.isNotEmpty() }
-                    if (showDetailRating && (ratings.isNotEmpty() || !tvCert.isNullOrBlank())) {
-                        FlowRow(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(top = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            if (!tvCert.isNullOrBlank()) com.hikari.app.tv.TvCertChip(tvCert)
-                            ratings.forEach { r -> RatingBadge(r) { ratingInfo = r } }
-                        }
-                    } else if (!tvCert.isNullOrBlank()) {
-                        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            com.hikari.app.tv.TvCertChip(tvCert)
-                        }
-                    }
-                    Row(
-                        Modifier.padding(top = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (markWatched) {
-                            MarkChip(tr("Watched"), active = true) { markSheet = true }
-                        }
-                        if (markWatching) MarkChip(tr("Watching"), active = true) { markSheet = true }
-                        if (markLater) MarkChip(tr("Watch later"), active = true) { markSheet = true }
-                        MarkChip(
-                            if (markAnything) tr("Change") else tr("Mark"),
-                            active = false,
-                        ) { markSheet = true }
-                    }
-                }
+com.hikari.app.tv.TvNuvioHeroColumn(
+                    artTitle = artTitle,
+                    heroLogo = heroLogo,
+                    displayOverview = displayOverview,
+                    meta = m,
+                    extras = extras,
+                    playRow = { tvPlayRow(0.dp) },
+                    modifier = Modifier
+                        .align(if (episodePosterStyle) Alignment.BottomStart else Alignment.CenterStart)
+                        .fillMaxWidth(if (episodePosterStyle) 0.58f else 0.52f)
+                        .padding(
+                            start = 42.dp,
+                            end = 12.dp,
+                            top = if (episodePosterStyle) 0.dp else 42.dp,
+                            bottom = if (episodePosterStyle) 20.dp else 24.dp,
+                        ),
+                )
             }
         } else {
             Box(Modifier.fillMaxWidth().onSizeChanged { headerPx = it.height }) {
@@ -4959,29 +4885,16 @@ fun DetailScreen(
                 // (year · runtime · certification · rating) plus status/country/
                 // language and the director/writer credits. Renders only once
                 // the background TMDB lookup has landed.
-                extras?.details?.let { det ->
+                if (!isTvLayout) extras?.details?.let { det ->
                     item {
                         DetailsBlock(
                             d = det,
-                            // TV already shows ratings + year/runtime/cert in
-                            // the hero (reference layout) — the block below
-                            // keeps only status/country/language/votes/
-                            // release/director/writers so nothing shows twice.
-                            ratings = if (showDetailRating && !isTvLayout) ratings else emptyList(),
-                            hideHeadline = isTvLayout,
-                            // The callback stays wired for when the strip
-                            // comes back (setting on, phone layout).
+                            ratings = if (showDetailRating) ratings else emptyList(),
+                            hideHeadline = false,
                             onRatingClick = { ratingInfo = it },
                         )
                     }
                 }
-                // Production companies / networks — one tap opens everything
-                // that studio or network made (a TMDB entity grid; see the
-                // TmdbSourceType.COMPANY/NETWORK queries). It sits ABOVE the cast
-                // row, the order the reference client uses. Phone-only: TV
-                // reads them in the hero's own plate row (reference layout),
-                // so the page row below would show every studio twice — and
-                // the row is skipped when the lookup found nothing.
                 if (!isTvLayout) extras?.companies?.takeIf { it.isNotEmpty() }?.let { companies ->
                     item {
                         ProductionRow(companies) { c ->
@@ -4989,9 +4902,6 @@ fun DetailScreen(
                                 type = if (c.isNetwork) TmdbSourceType.NETWORK
                                 else TmdbSourceType.COMPANY,
                                 id = c.id,
-                                // A network only ever has series; a studio has
-                                // both, and "all" makes the grid merge its films
-                                // and its shows into one row.
                                 media = if (c.isNetwork) "tv" else "all",
                                 sort = "popularity.desc",
                                 title = c.name,
@@ -5000,38 +4910,41 @@ fun DetailScreen(
                         }
                     }
                 }
-                // Cast + Trailers sit ABOVE the episode list — the order the
-                // Nuvio/Stremio detail page uses. Below it they were buried under
-                // a 30-episode season (or below the fold of a long overview) and
-                // read as "the sections are missing". Both come from the same
-                // background TMDB call, and each row is skipped entirely when
-                // that lookup found nothing.
-                // A local read of the delegated property: a `by remember` value
-                // cannot be smart-cast, so the null check happens on a plain val.
                 val extrasNow = extras
                 if (extrasNow != null && extrasNow.cast.isNotEmpty()) {
-                    // For an anime, `cast` holds the characters (with the
-                    // Japanese voice actors as their second line) — see
-                    // AnimeCast. The row says which one it is showing.
                     val cast = extrasNow.cast
                     val characters = extrasNow.castIsCharacters
                     item {
-                        CastRow(cast, characters = characters) { member ->
-                            // A character cell searches their ACTOR (the
-                            // searchable name); a cast cell searches the actor
-                            // it already is.
-                            val query = if (characters) member.character ?: member.name else member.name
-                            Routes.safeNavigate(nav, Routes.searchQuery(query))
+                        if (isTvLayout) {
+                            val tvTrailer = extrasNow.trailers.firstOrNull()
+                            com.hikari.app.tv.TvNuvioCastRow(
+                                cast = cast,
+                                hasTrailer = tvTrailer != null,
+                                onCastClick = { member ->
+                                    val query = if (characters) member.character ?: member.name else member.name
+                                    Routes.safeNavigate(nav, Routes.searchQuery(query))
+                                },
+                                onTrailerClick = {
+                                    if (tvTrailer != null) {
+                                        openYouTubeVideo(
+                                            context,
+                                            tvTrailer.youtubeKey,
+                                            (m?.title ?: title) + " — " + tvTrailer.name,
+                                        )
+                                    }
+                                },
+                            )
+                        } else {
+                            CastRow(cast, characters = characters) { member ->
+                                val query = if (characters) member.character ?: member.name else member.name
+                                Routes.safeNavigate(nav, Routes.searchQuery(query))
+                            }
                         }
                     }
                 }
-                extras?.trailers?.takeIf { it.isNotEmpty() }?.let { trailers ->
+                if (!isTvLayout) extras?.trailers?.takeIf { it.isNotEmpty() }?.let { trailers ->
                     item {
                         TrailerRow(trailers) { trailer ->
-                            // Trailers hand off to the YouTube app instead of
-                            // playing in Hikari's WebView: YouTube redirects to
-                            // m.youtube.com and the WebView's redirect
-                            // protection blocks that, leaving a black page.
                             openYouTubeVideo(
                                 context,
                                 trailer.youtubeKey,
@@ -5039,6 +4952,7 @@ fun DetailScreen(
                             )
                         }
                     }
+                }
                 }
                 if (isSeries && !isTvLayout) {
                     // A Vega series' pack picker (audio variants, seasons,
@@ -5350,51 +5264,77 @@ fun DetailScreen(
                 // the closest thing to "more of exactly this".
                 extras?.collection?.takeIf { it.items.isNotEmpty() }?.let { coll ->
                     item {
-                        ShelfRow(
-                            heading = coll.name.ifBlank { tr("Collection") },
-                            shelf = coll.items,
-                            onClick = { openShelfItem(it) },
-                            onSearchHere = {
-                                Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
-                            },
-                            onGlobalSearch = {
-                                Routes.safeNavigate(nav, Routes.searchQuery(it.title))
-                            },
-                        )
+                        if (isTvLayout) {
+                            com.hikari.app.tv.TvCinemaRow(
+                                title = coll.name.ifBlank { tr("Collection") },
+                                providerName = "",
+                                items = coll.items,
+                                vertical = false,
+                                onOpen = { openShelfItem(it) },
+                            )
+                        } else {
+                            ShelfRow(
+                                heading = coll.name.ifBlank { tr("Collection") },
+                                shelf = coll.items,
+                                onClick = { openShelfItem(it) },
+                                onSearchHere = {
+                                    Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
+                                },
+                                onGlobalSearch = {
+                                    Routes.safeNavigate(nav, Routes.searchQuery(it.title))
+                                },
+                            )
+                        }
                     }
                 }
-                // Same-title shelves from TMDB — the Nuvio detail page's
-                // Related/Similar tabs, as inline rows. They show up only once
-                // the background lookup lands, and only when it found titles
-                // that actually have artwork, so a miss leaves no empty row.
                 if (related.isNotEmpty()) {
                     item {
-                        ShelfRow(
-                            heading = tr("Related"),
-                            shelf = related,
-                            onClick = { openShelfItem(it) },
-                            onSearchHere = {
-                                Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
-                            },
-                            onGlobalSearch = {
-                                Routes.safeNavigate(nav, Routes.searchQuery(it.title))
-                            },
-                        )
+                        if (isTvLayout) {
+                            com.hikari.app.tv.TvCinemaRow(
+                                title = tr("More like this"),
+                                providerName = "",
+                                items = related,
+                                vertical = false,
+                                onOpen = { openShelfItem(it) },
+                            )
+                        } else {
+                            ShelfRow(
+                                heading = tr("Related"),
+                                shelf = related,
+                                onClick = { openShelfItem(it) },
+                                onSearchHere = {
+                                    Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
+                                },
+                                onGlobalSearch = {
+                                    Routes.safeNavigate(nav, Routes.searchQuery(it.title))
+                                },
+                            )
+                        }
                     }
                 }
                 if (similar.isNotEmpty()) {
                     item {
-                        ShelfRow(
-                            heading = tr("Similar"),
-                            shelf = similar,
-                            onClick = { openShelfItem(it) },
-                            onSearchHere = {
-                                Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
-                            },
-                            onGlobalSearch = {
-                                Routes.safeNavigate(nav, Routes.searchQuery(it.title))
-                            },
-                        )
+                        if (isTvLayout) {
+                            com.hikari.app.tv.TvCinemaRow(
+                                title = tr("Similar"),
+                                providerName = "",
+                                items = similar,
+                                vertical = false,
+                                onOpen = { openShelfItem(it) },
+                            )
+                        } else {
+                            ShelfRow(
+                                heading = tr("Similar"),
+                                shelf = similar,
+                                onClick = { openShelfItem(it) },
+                                onSearchHere = {
+                                    Routes.safeNavigate(nav, Routes.searchInProvider(livePid, it.title))
+                                },
+                                onGlobalSearch = {
+                                    Routes.safeNavigate(nav, Routes.searchQuery(it.title))
+                                },
+                            )
+                        }
                     }
                 }
                 item { Spacer(Modifier.height(24.dp)) }
