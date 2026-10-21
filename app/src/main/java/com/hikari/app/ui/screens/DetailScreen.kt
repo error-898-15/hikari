@@ -3841,6 +3841,9 @@ fun DetailScreen(
     val tvHeroImage = m?.let { Artwork.heroModel(it) }
         ?: (PosterLoader.model(posterUrl) to false)
 
+val tvHeroImage = m?.let { Artwork.heroModel(it) }
+        ?: (PosterLoader.model(posterUrl) to false)
+
                     val tvPlayRow: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { topPad ->
                         val tvTrailer = extras?.trailers?.firstOrNull()
                         com.hikari.app.tv.TvNuvioPlayRow(
@@ -3861,40 +3864,6 @@ fun DetailScreen(
                             onDownload = { openDlChoice() },
                             modifier = Modifier.padding(top = topPad),
                         )
-                    }
-                        OutlinedButton(
-                            onClick = { openDlChoice() },
-                            shape = CircleShape,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = Color.Black.copy(alpha = 0.4f),
-                                contentColor = Color.White,
-                            ),
-                            contentPadding = PaddingValues(12.dp),
-                            modifier = Modifier.size(48.dp).tvPress(
-                                previewPass = true,
-                                onClick = { openDlChoice() }
-                            )
-                        ) {
-                            Icon(Icons.Filled.Download, contentDescription = tr("Download"), modifier = Modifier.size(20.dp))
-                        }
-                        OutlinedButton(
-                            onClick = openLibrary,
-                            shape = CircleShape,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isSaved) Color.White else Color.Black.copy(alpha = 0.4f),
-                                contentColor = if (isSaved) Color.Black else Color.White,
-                            ),
-                            contentPadding = PaddingValues(12.dp),
-                            modifier = Modifier.size(48.dp).tvPress(
-                                previewPass = true,
-                                onClick = openLibrary,
-                            )
-                        ) {
-                            Icon(if (isSaved) Icons.Filled.CheckCircle else Icons.Filled.FavoriteBorder, contentDescription = tr("Save"), modifier = Modifier.size(20.dp))
-                        }
-                    }
                     }
     val heroBlock: @Composable () -> Unit = {
         if (isTvLayout) {
