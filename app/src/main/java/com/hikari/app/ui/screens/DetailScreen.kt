@@ -8728,6 +8728,7 @@ private fun TvDetailNuvioHeroColumn(
                     color = Color.White.copy(alpha = 0.90f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
             }
 
@@ -8747,6 +8748,8 @@ private fun TvDetailNuvioHeroColumn(
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color(0xFF5CE1E6),
+                        maxLines = 1,
+                        softWrap = false,
                     )
                 }
                 Text(
@@ -8754,6 +8757,8 @@ private fun TvDetailNuvioHeroColumn(
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
         }
