@@ -147,6 +147,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.pointer.pointerInput
@@ -482,21 +483,6 @@ private enum class SettingsFolder(
         parent = "layout",
     ),
 }
-
-/** A card on a folder page, spaced like every other card there. */
-@Composable
-private fun SettingsCard(
-    top: Dp = 12.dp,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    GlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = top),
-        content = content,
-    )
-}
-
 /**
  * Which cards are currently unfolded, keyed by the card's own id (see
  * [SettingsSection]).
@@ -541,11 +527,7 @@ private fun SettingsCard(
                     color = if (hasFocus) Color.White else Color.White.copy(alpha = 0.09f),
                     shape = shape,
                 )
-                .let { m ->
-                    m.then(
-                        androidx.compose.ui.focus.onFocusChanged { hasFocus = it.hasFocus }
-                    )
-                },
+          .onFocusChanged { hasFocus = it.hasFocus },      
             content = content,
         )
     } else {
@@ -1733,11 +1715,7 @@ private fun FolderHeader(
                             color = if (backFocused) Color.White else Color.White.copy(alpha = 0.25f),
                             shape = RoundedCornerShape(50),
                         )
-                        .let { m ->
-                            m.then(
-                                androidx.compose.ui.focus.onFocusChanged { backFocused = it.isFocused }
-                            )
-                        }
+               .onFocusChanged { backFocused = it.isFocused }         
                         .clickable(
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                             indication = null,
@@ -1828,11 +1806,7 @@ private fun SettingsFolderRow(
                     color = if (focused) Color.White else Color.White.copy(alpha = 0.10f),
                     shape = shape,
                 )
-                .let { m ->
-                    m.then(
-                        androidx.compose.ui.focus.onFocusChanged { focused = it.isFocused }
-                    )
-                }
+          .onFocusChanged { focused = it.isFocused }      
                 .clickable(
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                     indication = null,
@@ -1948,15 +1922,11 @@ private fun TvLeftRow(
                 },
                 shape = pillShape,
             )
-            .let { m ->
-                m.then(
-                    androidx.compose.ui.focus.onFocusChanged { state ->
-                        focused = state.isFocused
-                        if (state.isFocused) onFocusSelect?.invoke()
-                    }
-                )
-            }
-            .clickable(
+      .onFocusChanged { state ->
+                focused = state.isFocused
+                if (state.isFocused) onFocusSelect?.invoke()
+      }      
+    .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null,
                 onClick = onClick,
