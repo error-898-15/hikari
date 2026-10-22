@@ -1100,6 +1100,22 @@ fun SettingsScreen(nav: NavHostController) {
                     // because that is what it changes: how much text is on a
                     // page, not what the page does.
                     item { SettingsCard { HideHelpCard(app) } }
+                    item {
+                        SettingsCard {
+                            LaunchedEffect(Unit) { com.hikari.app.tv.TvSidebarPrefs.init(context) }
+                            Column(Modifier.padding(16.dp)) {
+                                SettingsCardHeading(Icons.Filled.Tune, tr("Search & genre filters"))
+                                SettingsToggle(
+                                    label = tr("Show genre & type filters in Search"),
+                                    supporting = tr("Off by default — only the search bar and providers are shown unless turned on here"),
+                                    checked = com.hikari.app.tv.TvSidebarPrefs.showSearchFilters,
+                                    onCheckedChange = { on ->
+                                        com.hikari.app.tv.TvSidebarPrefs.setShowSearchFilters(context, on)
+                                    },
+                                )
+                            }
+                        }
+                    }
                     SettingsFolder.entries
                         .filter { it.parent == SettingsFolder.APP_LAYOUT.key }
                         .filter { !isTv || !it.phoneOnly }
