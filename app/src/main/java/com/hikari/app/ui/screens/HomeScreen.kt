@@ -1123,7 +1123,8 @@ fun HomeScreen(nav: NavHostController) {
                     // searched for before something can be watched. With an
                     // extension picked, the tap first asks WHERE: that
                     // extension alone, or everything (see [genreScope]).
-                    if (!TvMode.current()) {
+                    LaunchedEffect(Unit) { com.hikari.app.tv.TvSidebarPrefs.init(context) }
+                    if (com.hikari.app.tv.TvSidebarPrefs.showSearchFilters) {
                         HomeGenreStrip { name, genresText, keywordsText ->
                             val ext = selection.filter { !it.startsWith(COLLECTION_PREFIX) }.toSet()
                             if (ext.isEmpty()) {
