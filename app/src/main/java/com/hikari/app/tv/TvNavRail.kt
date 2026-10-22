@@ -55,7 +55,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -68,9 +68,6 @@ import com.hikari.app.ui.navigation.BottomTabs
 import com.hikari.app.ui.navigation.Routes
 import kotlinx.coroutines.launch
 
-/**
- * TV Sidebar & Appearance preferences used by SettingsScreen.kt, TvRedesign.kt & TvCinematicHero.kt.
- */
 object TvSidebarPrefs {
     private const val PREFS_NAME = "hikari_tv_ui_prefs"
     private var initialized = false
@@ -83,6 +80,9 @@ object TvSidebarPrefs {
         private set
     var expandCardOnFocus by mutableStateOf(false)
         private set
+    /** By default OFF (false): hides Genre & Type chips in Search/Home unless user enables it in Settings -> App Layout. */
+    var showSearchFilters by mutableStateOf(false)
+        private set
 
     fun init(context: Context) {
         if (initialized) return
@@ -92,6 +92,7 @@ object TvSidebarPrefs {
         showReloadButton = sp.getBoolean("show_reload_button", false)
         hideTitleLogo = sp.getBoolean("hide_title_logo", false)
         expandCardOnFocus = sp.getBoolean("expand_card_on_focus", false)
+        showSearchFilters = sp.getBoolean("show_search_filters", false)
     }
 
     fun setAutoHide(context: Context, value: Boolean) {
@@ -117,26 +118,49 @@ object TvSidebarPrefs {
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean("expand_card_on_focus", value).apply()
     }
+
+    fun setShowSearchFilters(context: Context, value: Boolean) {
+        showSearchFilters = value
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean("show_search_filters", value).apply()
+    }
 }
 
 /**
- * Click modifier without the default yellow TvFocusProvider indication ring.
+ * Prevents the "repo opens then bounces back to Home" bug:
+ * Consumes both KeyDown and KeyUp on the preview pass, and ONLY fires [onClick] if the
+ * KeyDown actually started on THIS specific rail item while it was already focused.
+ * Any trailing KeyUp left over from clicking a repo bundle in ExtensionsScreen is swallowed.
  */
 @Composable
 private fun Modifier.tvRailClick(onClick: () -> Unit): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
+    var downStartedHere by remember { mutableStateOf(false) }
     return this
-        .onKeyEvent { event ->
-            if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
-                when (event.key) {
-                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+        .onFocusChanged { state ->
+            if (!state.isFocused) downStartedHere = false
+        }
+        .onPreviewKeyEvent { event ->
+            val isConfirmKey = when (event.key) {
+                Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> true
+                else -> false
+            }
+            if (!isConfirmKey) return@onPreviewKeyEvent false
+
+            when (event.type) {
+                KeyEventType.KeyDown -> {
+                    if (event.nativeKeyEvent.repeatCount == 0) {
+                        downStartedHere = true
                         onClick()
-                        true
                     }
-                    else -> false
+                    true
                 }
-            } else {
-                false
+                KeyEventType.KeyUp -> {
+                    downStartedHere = false
+                    // Swallow KeyUp so Compose's clickable never triggers an accidental bounce to Home!
+                    true
+                }
+                else -> false
             }
         }
         .clickable(
@@ -187,7 +211,6 @@ fun TvNavRail(
     LaunchedEffect(Unit) { TvSidebarPrefs.init(context) }
 
     val allTabs = remember { BottomTabs }
-    // Main sidebar keeps only Home, Schedule, Browse, Library
     val mainTabs = remember(allTabs) {
         allTabs.filter { it.isMainTvSidebarTab() }.take(4)
     }
@@ -208,12 +231,15 @@ fun TvNavRail(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    // Only grab initial focus when on a main tab (never steal focus when inside Extensions/Settings)
     LaunchedEffect(mainTabs, currentRoute) {
         if (!initialFocusPending) return@LaunchedEffect
-        val index = mainTabs.indexOfFirst { it.route == currentRoute }.takeIf { it >= 0 } ?: 0
-        withFrameNanos { }
-        runCatching { listState.scrollToItem(index) }
-        runCatching { requesters.getOrNull(index)?.requestFocus() }
+        val index = mainTabs.indexOfFirst { it.route == currentRoute }
+        if (index >= 0) {
+            withFrameNanos { }
+            runCatching { listState.scrollToItem(index) }
+            runCatching { requesters.getOrNull(index)?.requestFocus() }
+        }
         initialFocusPending = false
     }
 
@@ -317,7 +343,6 @@ fun TvNavRail(
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                 )
 
-                // Clicking Profile / Settings & Acc directly opens SettingsScreen.kt!
                 TvBottomActionRow(
                     icon = Icons.Filled.Person,
                     title = activeProfileName,
