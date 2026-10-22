@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -75,14 +76,25 @@ fun TvSettingsSourceCard(
   modifier: Modifier = Modifier,
   iconRes: Int? = null,
 ) {
+  var focused by remember { mutableStateOf(false) }
+  val interactionSource = remember { MutableInteractionSource() }
+  val shape = RoundedCornerShape(20.dp)
   Surface(
     tonalElevation = 2.dp,
-    shape = RoundedCornerShape(20.dp),
+    shape = shape,
     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
+    border = BorderStroke(
+      width = if (focused) 1.8.dp else 1.dp,
+      color = if (focused) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+    ),
     modifier = modifier
-      .clip(RoundedCornerShape(20.dp))
-      .clickable(onClick = onClick)
+      .clip(shape)
+      .onFocusChanged { focused = it.isFocused }
+      .clickable(
+        interactionSource = interactionSource,
+        indication = null,
+        onClick = onClick,
+      )
       .tvPress(previewPass = true, onClick = onClick),
   ) {
     Row(
@@ -123,6 +135,7 @@ fun TvCinemaCard(
   onFocused: (() -> Unit)? = null,
 ) {
   var focused by remember { mutableStateOf(false) }
+  val interactionSource = remember { MutableInteractionSource() }
   val hero = remember(item) { Artwork.heroModel(item) }
   val art = hero.first
   val outerShape = RoundedCornerShape(16.dp)
@@ -146,17 +159,20 @@ fun TvCinemaCard(
           onFocused?.invoke()
         }
       }
-      .clickable(onClick = onClick)
+      .clickable(
+        interactionSource = interactionSource,
+        indication = null,
+        onClick = onClick,
+      )
       .tvPress(previewPass = true, onClick = onClick),
   ) {
-    // Thin white borderline ring around the card (1000263553.jpg style)
     Box(
       Modifier
         .fillMaxWidth()
         .aspectRatio(16f / 9f)
         .border(
-          width = if (focused) 1.8.dp else 0.dp,
-          color = if (focused) Color.White else Color.Transparent,
+          width = if (focused) 1.8.dp else 1.dp,
+          color = if (focused) Color.White else Color.White.copy(alpha = 0.12f),
           shape = outerShape,
         )
         .padding(if (focused) 3.dp else 0.dp)
@@ -204,10 +220,9 @@ fun TvCinemaCard(
 }
 
 /**
- * 1000263553.jpg & Video (00:00-00:03, 00:36-00:38) style Vertical Poster Card:
- * - Thin white borderline ring when focused
- * - Top-right rating badge (★ 80%)
- * - Title and "TV • 2026" below the poster
+ * 1000263553.jpg style Vertical Poster Card:
+ * indication = null disables the yellow TvFocusProvider ring so ONLY the thin white borderline
+ * around the poster artwork is drawn!
  */
 @Composable
 fun TvVerticalCard(
@@ -219,6 +234,7 @@ fun TvVerticalCard(
   onFocused: (() -> Unit)? = null,
 ) {
   var focused by remember { mutableStateOf(false) }
+  val interactionSource = remember { MutableInteractionSource() }
   val posterArt = remember(item) { Artwork.model(item) }
   val heroArt = remember(item) { Artwork.heroModel(item).first }
   val cardHeight = cardWidth * 1.48f
@@ -250,10 +266,13 @@ fun TvVerticalCard(
           onFocused?.invoke()
         }
       }
-      .clickable(onClick = onClick)
+      .clickable(
+        interactionSource = interactionSource,
+        indication = null,
+        onClick = onClick,
+      )
       .tvPress(previewPass = true, onClick = onClick),
   ) {
-    // Poster Box with Thin White Borderline Ring (1000263553.jpg style)
     Box(
       modifier = Modifier
         .fillMaxWidth()
@@ -282,7 +301,6 @@ fun TvVerticalCard(
         alignment = if (focused && expandOnFocus) Artwork.CINEMA_ALIGNMENT else Alignment.Center,
       )
 
-      // Top-Right Score Pill (★ 80% / 1000263553.jpg style)
       item.rating?.takeIf { it > 0 }?.let { r ->
         val pct = if (r <= 10f) (r * 10f).roundToInt() else r.roundToInt()
         Surface(
@@ -314,7 +332,6 @@ fun TvVerticalCard(
       }
     }
 
-    // Title & Meta below the card (1000263553.jpg style)
     Text(
       text = item.title,
       style = MaterialTheme.typography.titleSmall,
@@ -384,7 +401,6 @@ fun TvCinemaRow(
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
         )
-        // Subtle cyan accent line beside row title (1000263553.jpg style)
         Box(
           Modifier
             .width(26.dp)
