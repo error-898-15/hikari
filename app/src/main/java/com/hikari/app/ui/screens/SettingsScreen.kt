@@ -1510,6 +1510,17 @@ fun SettingsScreen(nav: NavHostController) {
     // keeps its single column. Both read the same body above.
 
 if (isTv) {
+        val leftActiveFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+        var rightPaneHasFocus by remember { mutableStateOf(false) }
+
+        BackHandler(enabled = openSub != null || rightPaneHasFocus) {
+            if (openSub != null) {
+                openSub = null
+            } else {
+                runCatching { leftActiveFocusRequester.requestFocus() }
+            }
+        }
+
         val hubTabs = remember {
             BottomTabs.filter { tab ->
                 val r = tab.route.lowercase()
@@ -1534,13 +1545,52 @@ if (isTv) {
                 contentPadding = PaddingValues(vertical = 8.dp, horizontal = 4.dp),
             ) {
                 item(key = "tv-left-title") {
-                    Text(
-                        tr("Settings"),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        modifier = Modifier.padding(start = 10.dp, bottom = 10.dp),
-                    )
+                    var exitFocused by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 4.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (exitFocused) Color.White else Color.White.copy(alpha = 0.12f)
+                                )
+                                .border(
+                                    width = if (exitFocused) 1.6.dp else 1.dp,
+                                    color = if (exitFocused) Color.White else Color.White.copy(alpha = 0.24f),
+                                    shape = CircleShape,
+                                )
+                                .let { m ->
+                                    m.then(
+                                        androidx.compose.ui.focus.onFocusChanged { exitFocused = it.isFocused }
+                                    )
+                                }
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { nav.popBackStack() },
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = tr("Back"),
+                                tint = if (exitFocused) Color.Black else Color.White,
+                                modifier = Modifier.size(20.dp).rotate(180f),
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            tr("Settings"),
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                        )
+                    }
                 }
                 if (hubTabs.isNotEmpty()) {
                     items(hubTabs.size, key = { idx -> "tv-hub-" + hubTabs[idx].route }) { idx ->
@@ -1566,10 +1616,14 @@ if (isTv) {
                             icon = target.icon,
                             title = tr(target.title),
                             selected = isSelected,
-                            onFocusSelect = {
-                                if (openFolder != target || openSub != null) {
-                                    openFolderPage(target)
+                            modifier = if (isSelected) {
+                                Modifier.let { m ->
+                                    m.then(
+                                        androidx.compose.ui.focus.focusRequester(leftActiveFocusRequester)
+                                    )
                                 }
+                            } else {
+                                Modifier
                             },
                             onClick = { openFolderPage(target) },
                         )
@@ -1599,6 +1653,11 @@ if (isTv) {
                     .clip(RoundedCornerShape(24.dp))
                     .background(Color(0xFF15171E).copy(alpha = 0.94f))
                     .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(24.dp))
+                    .let { m ->
+                        m.then(
+                            androidx.compose.ui.focus.onFocusChanged { rightPaneHasFocus = it.hasFocus }
+                        )
+                    }
                     .padding(horizontal = 24.dp, vertical = 20.dp),
             ) {
                 val activeTarget = (openFolder ?: tvTopFolders.firstOrNull()) to openSub
@@ -1696,52 +1755,72 @@ private fun FolderHeader(
     if (TvMode.current()) {
         val context = LocalContext.current
         LaunchedEffect(Unit) { com.hikari.app.tv.TvSidebarPrefs.init(context) }
+        var backFocused by remember { mutableStateOf(false) }
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 10.dp),
+                .padding(bottom = 12.dp),
         ) {
-            if (parentTitle != null) {
-                var backFocused by remember { mutableStateOf(false) }
-                Row(
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
                     modifier = Modifier
-                        .padding(bottom = 10.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(if (backFocused) Color.White else Color.White.copy(alpha = 0.12f))
-                        .border(
-                            width = if (backFocused) 1.5.dp else 1.dp,
-                            color = if (backFocused) Color.White else Color.White.copy(alpha = 0.25f),
-                            shape = RoundedCornerShape(50),
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (backFocused) Color.White else Color.White.copy(alpha = 0.12f)
                         )
-               .onFocusChanged { backFocused = it.isFocused }         
+                        .border(
+                            width = if (backFocused) 1.6.dp else 1.dp,
+                            color = if (backFocused) Color.White else Color.White.copy(alpha = 0.25f),
+                            shape = CircleShape,
+                        )
+                        .let { m ->
+                            m.then(
+                                androidx.compose.ui.focus.onFocusChanged { backFocused = it.isFocused }
+                            )
+                        }
                         .clickable(
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                             indication = null,
                             onClick = onBack,
-                        )
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                        ),
+                    contentAlignment = Alignment.Center,
                 ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = tr("Back"),
+                        tint = if (backFocused) Color.Black else Color.White,
+                        modifier = Modifier.size(22.dp).rotate(180f),
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    if (parentTitle != null) {
+                        Text(
+                            text = tr(parentTitle) + " ›",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White.copy(alpha = 0.65f),
+                        )
+                    }
                     Text(
-                        text = "←  " + tr(parentTitle),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = if (backFocused) Color.Black else Color.White,
+                        text = tr(folder.title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = tr(folder.subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.68f),
                     )
                 }
             }
-            Text(
-                text = tr(folder.title),
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.White,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = tr(folder.subtitle),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.68f),
-            )
             if (folder == SettingsFolder.APPEARANCE || folder == SettingsFolder.TV) {
                 Spacer(Modifier.height(12.dp))
                 SettingsCard(top = 0.dp) {
@@ -1804,7 +1883,11 @@ private fun SettingsFolderRow(
                     color = if (focused) Color.White else Color.White.copy(alpha = 0.10f),
                     shape = shape,
                 )
-          .onFocusChanged { focused = it.isFocused }      
+                .let { m ->
+                    m.then(
+                        androidx.compose.ui.focus.onFocusChanged { focused = it.isFocused }
+                    )
+                }
                 .clickable(
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                     indication = null,
@@ -1894,13 +1977,13 @@ private fun TvLeftRow(
     icon: ImageVector,
     title: String,
     selected: Boolean = false,
-    onFocusSelect: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val pillShape = RoundedCornerShape(50)
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(46.dp)
             .clip(pillShape)
@@ -1920,11 +2003,12 @@ private fun TvLeftRow(
                 },
                 shape = pillShape,
             )
-      .onFocusChanged { state ->
-                focused = state.isFocused
-                if (state.isFocused) onFocusSelect?.invoke()
-      }      
-    .clickable(
+            .let { m ->
+                m.then(
+                    androidx.compose.ui.focus.onFocusChanged { focused = it.isFocused }
+                )
+            }
+            .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null,
                 onClick = onClick,
@@ -3704,7 +3788,6 @@ private fun SettingsSlider(
     )
 }
 
-/** A switch row with a caption — the shape every toggle in this folder uses. */
 @Composable
 private fun SettingsToggle(
     label: String,
@@ -3712,41 +3795,63 @@ private fun SettingsToggle(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    val isTv = TvMode.current()
+    var focused by remember { mutableStateOf(false) }
+    val rowShape = RoundedCornerShape(12.dp)
+
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(top = 10.dp),
+            .padding(top = 8.dp)
+            .clip(rowShape)
+            .background(
+                if (isTv && focused) Color.White.copy(alpha = 0.14f)
+                else Color.Transparent
+            )
+            .border(
+                width = if (isTv && focused) 1.5.dp else 0.dp,
+                color = if (isTv && focused) Color.White else Color.Transparent,
+                shape = rowShape,
+            )
+            .let { m ->
+                m.then(
+                    androidx.compose.ui.focus.onFocusChanged { focused = it.isFocused }
+                )
+            }
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClick = { onCheckedChange(!checked) },
+            )
+            .padding(
+                horizontal = if (isTv) 12.dp else 0.dp,
+                vertical = if (isTv) 10.dp else 2.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(
                 label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (isTv && focused) FontWeight.Bold else FontWeight.Normal,
+                color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
             )
-            // Only when a switch actually needs explaining: a caption under
-            // every one of them made the folder pages read like a manual. And
-            // not at all when the user has turned explanations off — see
-            // [com.hikari.app.ui.components.LocalHideHelp].
             if (supporting.isNotBlank() && helpShown()) {
                 Text(
                     supporting,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    color = if (isTv) Color.White.copy(alpha = 0.68f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
         Spacer(Modifier.width(12.dp))
-        // The switch answers the D-pad itself — see [Modifier.tvToggle]: on a
-        // television this small right-hand target is otherwise skipped over by
-        // the focus search, and a setting that cannot be turned on or off is
-        // the whole complaint about toggles and remotes.
+        // Switch has onCheckedChange = null and NO tvToggle so Left/Right keys never flip it;
+        // tapping anywhere on the row (or pressing OK) toggles it ON and OFF!
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier.tvToggle(checked, onValueChange = onCheckedChange),
+            onCheckedChange = null,
         )
     }
 }
