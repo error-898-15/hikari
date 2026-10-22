@@ -1,7 +1,15 @@
 package com.hikari.app.tv
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +17,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,7 +25,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -58,30 +71,11 @@ import java.util.concurrent.ConcurrentHashMap
 private data class EnrichedHeroData(
     val item: MediaItem,
     val logoUrl: String?,
-    val certification: String?,
     val status: String?,
-    val runtimeMinutes: Int?,
-    val releaseDate: String?,
-    val rating: Double?,
 )
 
 private object TvHeroEnrichCache {
     val map = ConcurrentHashMap<String, EnrichedHeroData>()
-}
-
-private fun Any?.readHeroProp(vararg names: String): String? {
-    if (this == null) return null
-    for (n in names) {
-        val v = runCatching {
-            val getter = "get" + n.replaceFirstChar { it.uppercase() }
-            val m = this.javaClass.methods.firstOrNull {
-                it.name.equals(getter, ignoreCase = true) && it.parameterCount == 0
-            }
-            m?.invoke(this)
-        }.getOrNull()
-        if (v is String && v.isNotBlank()) return v.trim()
-    }
-    return null
 }
 
 @Suppress("UNUSED_PARAMETER")
@@ -128,17 +122,11 @@ fun TvCinematicHero(
             )
             val logo = runCatching { TmdbMeta.logo(mergedItem) }.getOrNull()
             val ex = runCatching { TmdbMeta.extras(mergedItem) }.getOrNull()
-            val det = ex?.details
             val finalOverview = ex?.overview?.takeIf { it.isNotBlank() } ?: mergedItem.overview
-            val finalRating = det?.rating?.takeIf { it > 0.0 } ?: mergedItem.rating
             val data = EnrichedHeroData(
-                item = mergedItem.copy(overview = finalOverview, rating = finalRating),
+                item = mergedItem.copy(overview = finalOverview),
                 logoUrl = logo,
-                certification = det?.certification?.trim()?.takeIf { it.isNotBlank() },
-                status = det.readHeroProp("status", "releaseStatus"),
-                runtimeMinutes = det?.runtimeMinutes?.takeIf { it > 0 },
-                releaseDate = det.readHeroProp("releaseDate", "released", "firstAirDate"),
-                rating = finalRating,
+                status = ex?.details?.status,
             )
             TvHeroEnrichCache.map[rawItem.uniqueId] = data
             enriched = data
@@ -146,13 +134,12 @@ fun TvCinematicHero(
     }
 
     val item = enriched?.item ?: rawItem
-    val logoUrl = enriched?.logoUrl
-    val art = remember(item) { Artwork.heroModel(item) }
+    val logoUrl = if (TvSidebarPrefs.hideTitleLogo) null else enriched?.logoUrl
     val bg = MaterialTheme.colorScheme.background
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val h = ((((maxHeight * 0.46f).value * scale.coerceIn(0.5f, 1.5f)).coerceIn(210f, 500f)) *
-            com.hikari.app.ui.HeaderPrefs.heightFactor).coerceIn(180f, 640f).dp
+        val h = ((((maxHeight * 0.48f).value * scale.coerceIn(0.5f, 1.5f)).coerceIn(220f, 520f)) *
+            com.hikari.app.ui.HeaderPrefs.heightFactor).coerceIn(200f, 640f).dp
 
         Box(
             modifier = Modifier
@@ -177,201 +164,239 @@ fun TvCinematicHero(
                 }
                 .clickable { onOpen(item) },
         ) {
-            // ডান পাশে ওয়াইড ব্যাকড্রপ ইমেজ (1000263428.jpg স্টাইল)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.76f)
-                    .fillMaxHeight()
-                    .align(Alignment.TopEnd)
-            ) {
-                PosterImage(
-                    model = art.first,
-                    contentDescription = item.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alignment = Artwork.CINEMA_ALIGNMENT,
-                )
-            }
+            // Sliding Backdrop + Content (1000263555.jpg style)
+            AnimatedContent(
+                targetState = item,
+                transitionSpec = {
+                    (slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { w -> w / 10 } +
+                        fadeIn(tween(240))) togetherWith
+                        (slideOutHorizontally(tween(220)) { w -> -w / 10 } +
+                            fadeOut(tween(180)))
+                },
+                label = "tv-hero-slide",
+            ) { current ->
+                val heroArt = remember(current) { Artwork.heroModel(current) }
+                val posterArt = remember(current) { Artwork.model(current) }
 
-            // বাম দিক থেকে ডানে স্মুথ ডার্ক গ্র্যাডিয়েন্ট
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            0f to bg,
-                            0.34f to bg.copy(alpha = 0.95f),
-                            0.60f to bg.copy(alpha = 0.45f),
-                            0.88f to Color.Transparent,
-                        )
+                Box(Modifier.fillMaxSize()) {
+                    // Full-bleed Backdrop Artwork
+                    PosterImage(
+                        model = heroArt.first,
+                        contentDescription = current.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        alignment = Artwork.CINEMA_ALIGNMENT,
                     )
-            )
 
-            // নিচের দিকে স্মুথ ভার্টিকাল ফেড গ্র্যাডিয়েন্ট
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to bg.copy(alpha = 0.30f),
-                            0.25f to Color.Transparent,
-                            0.68f to Color.Transparent,
-                            1f to bg,
-                        )
+                    // Smooth Horizontal Gradient
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.horizontalGradient(
+                                    0f to bg.copy(alpha = 0.92f),
+                                    0.42f to bg.copy(alpha = 0.68f),
+                                    0.78f to bg.copy(alpha = 0.20f),
+                                    1f to Color.Transparent,
+                                )
+                            )
                     )
-            )
 
-            // বাম পাশের তথ্য (Title Logo -> Meta -> Badges -> Overview)
-            Column(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .fillMaxWidth(0.56f)
-                    .padding(start = 26.dp, end = 12.dp, bottom = 10.dp),
-            ) {
-                if (!logoUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = PosterLoader.model(logoUrl),
-                        contentDescription = item.title,
-                        contentScale = ContentScale.Fit,
-                        alignment = Alignment.CenterStart,
+                    // Smooth Bottom Gradient
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to bg.copy(alpha = 0.25f),
+                                    0.45f to Color.Transparent,
+                                    1f to bg,
+                                )
+                            )
+                    )
+
+                    // Left 2:3 Poster + Right Details Row (1000263555.jpg style)
+                    Row(
                         modifier = Modifier
-                            .fillMaxWidth(0.68f)
-                            .heightIn(max = 88.dp),
-                    )
-                } else {
-                    Text(
-                        item.title,
-                        style = MaterialTheme.typography.displaySmall,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        lineHeight = 36.sp,
-                    )
-                }
-
-                Spacer(Modifier.height(10.dp))
-
-                // মেটাডেটা লাইন ১: Movie • Romance • 1h 52m • 23 September 2026
-                Text(
-                    buildHeroMetaLine(
-                        item = item,
-                        runtimeMinutes = enriched?.runtimeMinutes,
-                        releaseDate = enriched?.releaseDate,
-                        episodeSubtitle = TvHeroFocusState.focusedSubtitle,
-                    ),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White.copy(alpha = 0.88f),
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                // ব্যাজ সারি: [ R | RELEASED ] বা [ NEXT UP ] + হলুদ IMDb রেটিং
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    val badgeText = when {
-                        TvHeroFocusState.isContinueWatching -> "NEXT UP"
-                        !enriched?.certification.isNullOrBlank() && !enriched?.status.isNullOrBlank() ->
-                            "${enriched?.certification}  |  ${enriched?.status?.uppercase()}"
-                        !enriched?.certification.isNullOrBlank() ->
-                            "${enriched?.certification}  |  " + (if (item.type == MediaType.SERIES) "ONGOING" else "RELEASED")
-                        !enriched?.status.isNullOrBlank() ->
-                            enriched!!.status!!.uppercase()
-                        item.type == MediaType.SERIES -> "ONGOING"
-                        else -> "RELEASED"
-                    }
-                    Surface(
-                        color = Color.White.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(5.dp),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.42f)),
+                            .align(Alignment.CenterStart)
+                            .fillMaxWidth(0.78f)
+                            .padding(start = 24.dp, end = 16.dp, bottom = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            badgeText,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        // 2:3 Portrait Poster with Thin White Borderline
+                        Box(
+                            modifier = Modifier
+                                .width(116.dp)
+                                .aspectRatio(2f / 3f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .border(
+                                    width = 1.2.dp,
+                                    color = Color.White.copy(alpha = 0.70f),
+                                    shape = RoundedCornerShape(12.dp),
+                                ),
+                        ) {
+                            AsyncImage(
+                                model = posterArt ?: heroArt.first,
+                                contentDescription = current.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        Spacer(Modifier.width(22.dp))
+
+                        // Title, Genre Pills, Overview & "Click to view details"
+                        Column(modifier = Modifier.weight(1f)) {
+                            // Top white badge ("FEATURED" / "NEW EPISODE")
+                            Surface(
+                                color = Color.White,
+                                shape = RoundedCornerShape(4.dp),
+                            ) {
+                                val badgeLabel = when {
+                                    TvHeroFocusState.isContinueWatching -> "CONTINUE WATCHING"
+                                    current.type == MediaType.SERIES -> "SERIES"
+                                    else -> "FEATURED"
+                                }
+                                Text(
+                                    text = badgeLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.Black,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                )
+                            }
+
+                            if (current.originalTitle.isNotBlank() &&
+                                !current.originalTitle.equals(current.title, ignoreCase = true)
+                            ) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    text = current.originalTitle.uppercase(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+
+                            Spacer(Modifier.height(4.dp))
+
+                            if (!logoUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = PosterLoader.model(logoUrl),
+                                    contentDescription = current.title,
+                                    contentScale = ContentScale.Fit,
+                                    alignment = Alignment.CenterStart,
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.65f)
+                                        .heightIn(max = 76.dp),
+                                )
+                            } else {
+                                Text(
+                                    text = current.title,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    lineHeight = 32.sp,
+                                )
+                            }
+
+                            // Genre Pills Row (Adventure, Comedy, Fantasy, Slice of Life)
+                            val pills = remember(current) {
+                                buildList {
+                                    addAll(current.genres.take(4))
+                                    if (isEmpty()) {
+                                        current.year?.let { add(it.toString()) }
+                                    }
+                                }
+                            }
+                            if (pills.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    pills.forEach { genre ->
+                                        Surface(
+                                            color = Color.White.copy(alpha = 0.18f),
+                                            shape = RoundedCornerShape(50),
+                                        ) {
+                                            Text(
+                                                text = genre,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (!current.overview.isNullOrBlank()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    text = current.overview,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.88f),
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                    lineHeight = 17.sp,
+                                )
+                            }
+
+                            Spacer(Modifier.height(10.dp))
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Text(
+                                    text = "Click to view details",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Bottom-Center Carousel Dots (1000263555.jpg & Video 00:00 style)
+            if (items.size > 1) {
+                val activeDot = items.indexOfFirst { it.uniqueId == item.uniqueId }
+                    .takeIf { it >= 0 } ?: index
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    for (i in 0 until items.size.coerceAtMost(8)) {
+                        Box(
+                            Modifier
+                                .size(width = if (i == activeDot) 18.dp else 6.dp, height = 5.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(
+                                    if (i == activeDot) Color.White
+                                    else Color.White.copy(alpha = 0.38f)
+                                )
                         )
                     }
-
-                    val score = enriched?.rating ?: item.rating
-                    score?.takeIf { it > 0 }?.let { r ->
-                        TvHeroScoreChip("%.1f".format(r))
-                    }
-                }
-
-                if (!item.overview.isNullOrBlank()) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        item.overview,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.85f),
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                        lineHeight = 20.sp,
-                    )
                 }
             }
         }
-    }
-}
-
-private fun buildHeroMetaLine(
-    item: MediaItem,
-    runtimeMinutes: Int?,
-    releaseDate: String?,
-    episodeSubtitle: String?,
-): String {
-    val parts = ArrayList<String>(6)
-    if (!episodeSubtitle.isNullOrBlank()) {
-        parts += episodeSubtitle
-    } else {
-        val kind = when (item.type) {
-            MediaType.SERIES -> "Series"
-            MediaType.MOVIE -> "Movie"
-            else -> item.rawType.replaceFirstChar { it.uppercase() }.ifBlank { "Movie" }
-        }
-        parts += kind
-    }
-    parts += item.genres.take(2)
-    runtimeMinutes?.takeIf { it > 0 }?.let { mins ->
-        parts += if (mins >= 60) "${mins / 60}h ${mins % 60}m" else "${mins}m"
-    }
-    val dateOrYear = releaseDate?.takeIf { it.isNotBlank() } ?: item.year?.toString()
-    if (!dateOrYear.isNullOrBlank()) {
-        parts += if (item.type == MediaType.SERIES && dateOrYear.length == 4) "$dateOrYear–" else dateOrYear
-    }
-    return parts.joinToString(" • ")
-}
-
-@Composable
-private fun TvHeroScoreChip(text: String) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Surface(
-            color = Color(0xFFF5C518),
-            shape = RoundedCornerShape(4.dp),
-        ) {
-            Text(
-                "IMDb",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.Black,
-                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-            )
-        }
-        Text(
-            text,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-        )
     }
 }
