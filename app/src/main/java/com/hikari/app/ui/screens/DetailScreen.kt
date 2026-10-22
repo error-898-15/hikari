@@ -7916,7 +7916,11 @@ private fun EpisodePosterCard(
             modifier
         })
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
             .tvPress(previewPass = false, onClick = onClick)
             .padding(bottom = (6f * s).dp)
     ) {
