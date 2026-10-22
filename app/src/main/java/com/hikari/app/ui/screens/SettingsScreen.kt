@@ -520,6 +520,47 @@ private val openSettingsSections = mutableStateMapOf<String, Boolean>()
  * [SettingsCard]s.
  */
 @Composable
+private fun SettingsCard(
+    top: Dp = 12.dp,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    if (TvMode.current()) {
+        var hasFocus by remember { mutableStateOf(false) }
+        val shape = RoundedCornerShape(14.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = top)
+                .clip(shape)
+                .background(
+                    if (hasFocus) Color.White.copy(alpha = 0.12f)
+                    else Color.White.copy(alpha = 0.06f)
+                )
+                .border(
+                    width = if (hasFocus) 1.6.dp else 1.dp,
+                    color = if (hasFocus) Color.White else Color.White.copy(alpha = 0.09f),
+                    shape = shape,
+                )
+                .let { m ->
+                    m.then(
+                        androidx.compose.ui.focus.onFocusChanged { hasFocus = it.hasFocus }
+                    )
+                },
+            content = content,
+        )
+    } else {
+        GlassCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = top),
+            content = content,
+        )
+    }
+}
+
+private val openSettingsSections = mutableStateMapOf<String, Boolean>()
+
+@Composable
 private fun SettingsSection(
     id: String,
     icon: ImageVector,
@@ -527,8 +568,8 @@ private fun SettingsSection(
     summary: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val expanded = openSettingsSections[id] == true
-    // The chevron turns over as the card opens rather than snapping.
+    val isTv = TvMode.current()
+    val expanded = openSettingsSections[id] ?: isTv
     val turn by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         label = "section-chevron",
@@ -537,23 +578,37 @@ private fun SettingsSection(
         Row(
             Modifier
                 .fillMaxWidth()
-                .clickable { openSettingsSections[id] = !expanded }
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick = { openSettingsSections[id] = !expanded },
+                )
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SettingsThemeTile(icon, id)
+            if (isTv) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp),
+                )
+            } else {
+                SettingsThemeTile(icon, id)
+            }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    style = if (isTv) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleSmall,
+                    fontWeight = if (isTv) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isTv) Color.White else MaterialTheme.colorScheme.primary,
                 )
                 if (!summary.isNullOrBlank() && helpShown()) {
                     Text(
                         summary,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (isTv) Color.White.copy(alpha = 0.68f) else MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -563,14 +618,14 @@ private fun SettingsSection(
             Icon(
                 Icons.Filled.ExpandMore,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (isTv) Color.White.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.rotate(turn),
             )
         }
         AnimatedVisibility(visible = expanded) {
             Column(Modifier.fillMaxWidth()) {
                 HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+                    color = if (isTv) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 Spacer(Modifier.height(12.dp))
@@ -1473,29 +1528,69 @@ fun SettingsScreen(nav: NavHostController) {
     }
     // Television draws the categories and the folder side by side; the phone
     // keeps its single column. Both read the same body above.
-    if (isTv) {
-        Row(Modifier.fillMaxSize()) {
+
+if (isTv) {
+        val hubTabs = remember {
+            BottomTabs.filter { tab ->
+                val r = tab.route.lowercase()
+                val l = tab.label.lowercase()
+                r.contains("manga") || r.contains("telegram") || r.contains("extension") ||
+                    r.contains("iptv") || l.contains("manga") || l.contains("telegram") ||
+                    l.contains("extension") || l.contains("iptv")
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(22.dp),
+        ) {
             LazyColumn(
                 state = tvLeftState,
                 modifier = Modifier
-                    .weight(0.36f)
+                    .weight(0.30f)
                     .fillMaxHeight(),
-                contentPadding = PaddingValues(start = 16.dp, end = 8.dp, top = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 8.dp, horizontal = 4.dp),
             ) {
                 item(key = "tv-left-title") {
                     Text(
                         tr("Settings"),
                         style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        modifier = Modifier.padding(start = 10.dp, bottom = 10.dp),
                     )
+                }
+                if (hubTabs.isNotEmpty()) {
+                    items(hubTabs.size, key = { idx -> "tv-hub-" + hubTabs[idx].route }) { idx ->
+                        val tab = hubTabs[idx]
+                        TvLeftRow(
+                            icon = tab.icon,
+                            title = tr(tab.label),
+                            selected = false,
+                            onClick = { Routes.navigateTab(nav, tab.route) },
+                        )
+                    }
+                    item(key = "tv-left-hub-divider") {
+                        HorizontalDivider(
+                            color = Color.White.copy(alpha = 0.14f),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
                 }
                 tvTopFolders.forEach { target ->
                     item(key = "tv-left-" + target.key) {
-                        SettingsFolderRow(
-                            folder = target,
-                            top = 8.dp,
-                            selected = target == (openFolder ?: tvTopFolders.firstOrNull()),
+                        val isSelected = target == (openFolder ?: tvTopFolders.firstOrNull())
+                        TvLeftRow(
+                            icon = target.icon,
+                            title = tr(target.title),
+                            selected = isSelected,
+                            onFocusSelect = {
+                                if (openFolder != target || openSub != null) {
+                                    openFolderPage(target)
+                                }
+                            },
                             onClick = { openFolderPage(target) },
                         )
                     }
@@ -1504,6 +1599,7 @@ fun SettingsScreen(nav: NavHostController) {
                     TvLeftRow(
                         icon = Icons.Filled.BarChart,
                         title = tr("Stats"),
+                        selected = false,
                         onClick = { showStats = true },
                     )
                 }
@@ -1511,18 +1607,51 @@ fun SettingsScreen(nav: NavHostController) {
                     TvLeftRow(
                         icon = Icons.Filled.SwitchAccount,
                         title = tr("Profiles"),
+                        selected = false,
                         onClick = { showProfiles = true },
                     )
                 }
             }
-            LazyColumn(
-                state = folderState,
+            Box(
                 modifier = Modifier
-                    .weight(0.64f)
-                    .fillMaxHeight(),
-                contentPadding = PaddingValues(start = 8.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
+                    .weight(0.70f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color(0xFF15171E).copy(alpha = 0.94f))
+                    .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
             ) {
-                settingsListBody()
+                val activeTarget = (openFolder ?: tvTopFolders.firstOrNull()) to openSub
+                androidx.compose.animation.AnimatedContent(
+                    targetState = activeTarget,
+                    transitionSpec = {
+                        val initialIdx = tvTopFolders.indexOf(initialState.first).coerceAtLeast(0)
+                        val targetIdx = tvTopFolders.indexOf(targetState.first).coerceAtLeast(0)
+                        val dir = if (targetIdx >= initialIdx) 1 else -1
+                        androidx.compose.animation.ContentTransform(
+                            targetContentEnter = androidx.compose.animation.slideInVertically(
+                                androidx.compose.animation.core.tween(
+                                    250,
+                                    easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                                )
+                            ) { h -> dir * (h / 4) } +
+                                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(210)),
+                            initialContentExit = androidx.compose.animation.slideOutVertically(
+                                androidx.compose.animation.core.tween(200)
+                            ) { h -> -dir * (h / 4) } +
+                                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)),
+                        )
+                    },
+                    label = "tv-settings-slide",
+                ) { _ ->
+                    LazyColumn(
+                        state = if (openSub != null) subState else folderState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 24.dp),
+                    ) {
+                        settingsListBody()
+                    }
+                }
             }
         }
     } else {
@@ -1533,7 +1662,6 @@ fun SettingsScreen(nav: NavHostController) {
                 start = 16.dp,
                 end = 16.dp,
                 top = 16.dp,
-                // Clear of the floating taskbar (0 when there is no bar).
                 bottom = LocalTaskbarInset.current + 16.dp,
             ),
         ) {
@@ -1549,9 +1677,6 @@ fun SettingsScreen(nav: NavHostController) {
         )
     }
 
-    // The warning the folder's button opens. Nothing about clearing data is
-    // destructive until the confirm button here is tapped, so this dialog is
-    // the only place the wipe is called from.
     if (showClearDataDialog) {
         AlertDialog(
             onDismissRequest = { showClearDataDialog = false },
@@ -1582,35 +1707,100 @@ fun SettingsScreen(nav: NavHostController) {
     }
 }
 
-/**
- * The folder page's own header: the folder's badge, then its name and one-line
- * summary, on the same line as the back button — so a folder starts with the
- * same "icon, then what it is called" shape as the row that opened it.
- *
- * The layout, the one size every settings page's name is drawn at, and the
- * reason for it all live in [SettingsPageHeader]; this is only the folder-shaped
- * caller of it. [parentTitle] is set when a sub-folder is open, and is printed as
- * a breadcrumb ("Appearance ›") on the line above the badge row.
- */
 @Composable
 private fun FolderHeader(
     folder: SettingsFolder,
     parentTitle: String? = null,
     onBack: () -> Unit,
 ) {
-    SettingsPageHeader(
-        title = tr(folder.title),
-        subtitle = tr(folder.subtitle),
-        icon = folder.icon,
-        breadcrumb = parentTitle?.let { tr(it) + " ›" },
-        onBack = onBack,
-    )
+    if (TvMode.current()) {
+        val context = LocalContext.current
+        LaunchedEffect(Unit) { com.hikari.app.tv.TvSidebarPrefs.init(context) }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 10.dp),
+        ) {
+            if (parentTitle != null) {
+                var backFocused by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .padding(bottom = 10.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(if (backFocused) Color.White else Color.White.copy(alpha = 0.12f))
+                        .border(
+                            width = if (backFocused) 1.5.dp else 1.dp,
+                            color = if (backFocused) Color.White else Color.White.copy(alpha = 0.25f),
+                            shape = RoundedCornerShape(50),
+                        )
+                        .let { m ->
+                            m.then(
+                                androidx.compose.ui.focus.onFocusChanged { backFocused = it.isFocused }
+                            )
+                        }
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null,
+                            onClick = onBack,
+                        )
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "←  " + tr(parentTitle),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (backFocused) Color.Black else Color.White,
+                    )
+                }
+            }
+            Text(
+                text = tr(folder.title),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = tr(folder.subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.68f),
+            )
+            if (folder == SettingsFolder.APPEARANCE || folder == SettingsFolder.TV) {
+                Spacer(Modifier.height(12.dp))
+                SettingsCard(top = 0.dp) {
+                    Column(Modifier.padding(16.dp)) {
+                        SettingsToggle(
+                            label = "Auto-Hide Sidebar",
+                            supporting = "Keep sidebar completely off-screen until focused via D-pad Left",
+                            checked = com.hikari.app.tv.TvSidebarPrefs.autoHideSidebar,
+                            onCheckedChange = {
+                                com.hikari.app.tv.TvSidebarPrefs.setAutoHide(context, it)
+                            },
+                        )
+                        SettingsToggle(
+                            label = "Show Reload Button in Sidebar",
+                            supporting = "Display a quick refresh action button at the bottom of the navigation drawer",
+                            checked = com.hikari.app.tv.TvSidebarPrefs.showReloadButton,
+                            onCheckedChange = {
+                                com.hikari.app.tv.TvSidebarPrefs.setShowReload(context, it)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    } else {
+        SettingsPageHeader(
+            title = tr(folder.title),
+            subtitle = tr(folder.subtitle),
+            icon = folder.icon,
+            breadcrumb = parentTitle?.let { tr(it) + " ›" },
+            onBack = onBack,
+        )
+    }
 }
 
-/** One folder on the index — and one sub-folder inside a folder page: badge,
- *  name, what is inside, and its own chevron. [top] is the gap above it, so a
- *  sub-folder row can sit tighter under its parent's heading. [selected] is the
- *  television left pane's answer to "which category is open". */
 @Composable
 private fun SettingsFolderRow(
     folder: SettingsFolder,
@@ -1618,36 +1808,59 @@ private fun SettingsFolderRow(
     selected: Boolean = false,
     onClick: () -> Unit,
 ) {
-    GlassCard(
-        onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = top)
-    ) {
+    if (TvMode.current()) {
+        var focused by remember { mutableStateOf(false) }
+        val shape = RoundedCornerShape(14.dp)
         Row(
-            Modifier
+            modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(top = top)
+                .clip(shape)
+                .background(
+                    when {
+                        focused -> Color.White.copy(alpha = 0.14f)
+                        selected -> Color.White.copy(alpha = 0.10f)
+                        else -> Color.White.copy(alpha = 0.06f)
+                    }
+                )
+                .border(
+                    width = if (focused) 1.6.dp else 1.dp,
+                    color = if (focused) Color.White else Color.White.copy(alpha = 0.10f),
+                    shape = shape,
+                )
+                .let { m ->
+                    m.then(
+                        androidx.compose.ui.focus.onFocusChanged { focused = it.isFocused }
+                    )
+                }
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick,
+                )
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Theme tile for every folder AND sub-folder: no picture icons, and the
-            // tile follows the selected accent colour.
-            SettingsThemeTile(folder.icon, folder.key)
+            Icon(
+                imageVector = folder.icon,
+                contentDescription = tr(folder.title),
+                tint = Color.White,
+                modifier = Modifier.size(22.dp),
+            )
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     tr(folder.title),
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (selected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
                 )
-                Spacer(Modifier.height(2.dp))
                 if (helpShown()) {
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         tr(folder.subtitle),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = Color.White.copy(alpha = 0.68f),
                     )
                 }
             }
@@ -1655,11 +1868,124 @@ private fun SettingsFolderRow(
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = if (selected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
+                tint = Color.White.copy(alpha = 0.75f),
+                modifier = Modifier.size(20.dp),
             )
         }
+    } else {
+        GlassCard(
+            onClick = onClick,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = top)
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SettingsThemeTile(folder.icon, folder.key)
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        tr(folder.title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    if (helpShown()) {
+                        Text(
+                            tr(folder.subtitle),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = if (selected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvLeftRow(
+    icon: ImageVector,
+    title: String,
+    selected: Boolean = false,
+    onFocusSelect: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val pillShape = RoundedCornerShape(50)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(46.dp)
+            .clip(pillShape)
+            .background(
+                when {
+                    focused -> Color(0xFFE8ECF4)
+                    selected -> Color.White.copy(alpha = 0.18f)
+                    else -> Color(0xFF1A1C23)
+                }
+            )
+            .border(
+                width = if (focused) 1.6.dp else 1.dp,
+                color = when {
+                    focused -> Color.White
+                    selected -> Color.White.copy(alpha = 0.35f)
+                    else -> Color.White.copy(alpha = 0.08f)
+                },
+                shape = pillShape,
+            )
+            .let { m ->
+                m.then(
+                    androidx.compose.ui.focus.onFocusChanged { state ->
+                        focused = state.isFocused
+                        if (state.isFocused) onFocusSelect?.invoke()
+                    }
+                )
+            }
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = if (focused) Color(0xFF101216) else Color.White,
+            modifier = Modifier.size(19.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = if (focused) Color(0xFF101216) else Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = if (focused) Color(0xFF101216) else Color.White.copy(alpha = 0.65f),
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 
@@ -3460,14 +3786,32 @@ private fun SettingsToggle(
 /** A card's leading row: the brand tile plus the card's own heading. */
 @Composable
 private fun SettingsCardHeading(icon: ImageVector, title: String, brandKey: String = title) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        SettingsThemeTile(icon, brandKey, size = 30.dp)
-        Spacer(Modifier.width(12.dp))
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
+    if (TvMode.current()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+            )
+        }
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SettingsThemeTile(icon, brandKey, size = 30.dp)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
     }
 }
 
