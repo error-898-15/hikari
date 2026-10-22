@@ -4094,7 +4094,7 @@ fun DetailScreen(
                                             fallbackImage = m?.backdropUrl ?: m?.posterUrl ?: posterUrl,
                                             onClick = { tryPlay(ep) },
                                             onDownload = { tryDownload(ep) },
-                                            modifier = Modifier.width((150f * tvEpisodeScale).dp),
+                                            modifier = Modifier.width((260f * tvEpisodeScale).dp),
                                             sizeScale = tvEpisodeScale,
                                             glass = episodeGlass,
                                             hideSpoilers = antiSpoiler && !isEpSeen(ep),
@@ -4445,10 +4445,10 @@ fun DetailScreen(
                                         modifier = Modifier.padding(vertical = 12.dp)
                                     )
                                 } else {
-                                    LazyRow(
+                                   LazyRow(
                                         modifier = Modifier.fillMaxWidth(),
-                                        contentPadding = PaddingValues(horizontal = 2.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                                     ) {
                                         itemsIndexed(
                                             pageEps,
@@ -4459,12 +4459,12 @@ fun DetailScreen(
                                                 fallbackImage = m?.backdropUrl ?: m?.posterUrl ?: posterUrl,
                                                 onClick = { tryPlay(ep) },
                                                 onDownload = { tryDownload(ep) },
-                                                modifier = Modifier.width((160f * tvEpisodeScale).dp),
+                                                modifier = Modifier.width((260f * tvEpisodeScale).dp),
                                                 sizeScale = tvEpisodeScale,
                                                 hideSpoilers = antiSpoiler && !isEpSeen(ep),
                                             )
                                         }
-                                    }
+                                   }
                                 }
                             }
                         }
@@ -7954,9 +7954,86 @@ private fun EpisodePosterCard(
                     Modifier
                         .align(Alignment.TopStart)
                         .padding((6f * s).dp)
+@Composable
+private fun EpisodePosterCard(
+    ep: Episode,
+    fallbackImage: String? = null,
+    onClick: () -> Unit,
+    onDownload: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    sizeScale: Float = 1f,
+    glass: Boolean = false,
+    hideSpoilers: Boolean = false,
+) {
+    val s = sizeScale.coerceIn(0.8f, 1.6f)
+    val tokens = rememberGlassTokens()
+    var focused by remember { mutableStateOf(false) }
+    val outerShape = RoundedCornerShape(16.dp)
+    val innerShape = RoundedCornerShape(14.dp)
+
+    Column(
+        (if (glass) {
+            modifier
+                .clip(RoundedCornerShape(18.dp))
+                .background(Brush.verticalGradient(listOf(tokens.fillTop, tokens.fillBottom)))
+                .border(1.dp, tokens.border, RoundedCornerShape(18.dp))
+                .padding((8f * s).dp)
+        } else {
+            modifier
+        })
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .tvPress(previewPass = false, onClick = onClick)
+            .padding(bottom = (6f * s).dp)
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .border(
+                    width = if (focused) 1.8.dp else 1.dp,
+                    color = if (focused) Color.White else Color.White.copy(alpha = 0.14f),
+                    shape = outerShape,
+                )
+                .padding(if (focused) 3.dp else 0.dp)
+                .clip(innerShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            val thumb = PosterLoader.model(ep.image?.takeIf { it.isNotBlank() } ?: fallbackImage)
+            if (thumb != null) {
+                AsyncImage(
+                    model = thumb,
+                    contentDescription = tr("Episode %s").replace("%s", ep.number.toString()),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(innerShape)
+                        .then(if (hideSpoilers) Modifier.blur(16.dp) else Modifier),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding((8f * s).dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.Black.copy(alpha = 0.76f))
+                    .padding(horizontal = (8f * s).dp, vertical = (3f * s).dp)
+            ) {
+                Text(
+                    "E" + ep.number.toString().padStart(2, '0'),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+            if (isEpisodeUnaired(ep.released)) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding((8f * s).dp)
                         .clip(RoundedCornerShape(6.dp))
                         .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.92f))
-                        .padding(horizontal = (7f * s).dp, vertical = (3f * s).dp)
+                        .padding(horizontal = (8f * s).dp, vertical = (3f * s).dp)
                 ) {
                     Text(
                         tr("Not released yet"),
@@ -7969,19 +8046,25 @@ private fun EpisodePosterCard(
             Box(
                 Modifier
                     .align(Alignment.Center)
-                    .size((34f * s).dp)
+                    .size((40f * s).dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.60f)),
+                    .background(Color.Black.copy(alpha = 0.62f))
+                    .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = tr("Play"), tint = Color.White)
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = tr("Play"),
+                    tint = Color.White,
+                    modifier = Modifier.size((22f * s).dp)
+                )
             }
             if (onDownload != null) {
                 IconButton(
                     onClick = onDownload,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .size((36f * s).dp)
+                        .size((38f * s).dp)
                         .tvPress(previewPass = true, onClick = onDownload)
                 ) {
                     Icon(
@@ -7997,27 +8080,26 @@ private fun EpisodePosterCard(
             if (hideSpoilers) tr("Episode %s").replace("%s", ep.number.toString())
             else ep.name?.ifBlank { tr("Episode %s").replace("%s", ep.number.toString()) }
                 ?: tr("Episode %s").replace("%s", ep.number.toString()),
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontSize = (MaterialTheme.typography.labelMedium.fontSize.value * s).sp
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontSize = (MaterialTheme.typography.titleSmall.fontSize.value * s).sp
             ),
-            maxLines = 2,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = (2f * s).dp, top = (5f * s).dp, end = (2f * s).dp)
+            modifier = Modifier.padding(start = (4f * s).dp, top = (8f * s).dp, end = (4f * s).dp)
         )
-        // The TV grid never printed descriptions — only titles — so a TV
-        // episode told the user nothing about itself. Gated by the same
-        // Settings → TV switch as the list rows.
         val showDescription = HikariApp.instance.store.episodeDescriptionFlow().collectAsState(initial = true).value
         if (showDescription && (!ep.overview.isNullOrBlank() || hideSpoilers)) {
             Text(
                 if (hideSpoilers) tr("Hidden to avoid spoilers") else ep.overview!!.trim(),
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * s).sp
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * s).sp
                 ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
+                color = Color.White.copy(alpha = 0.72f),
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = (2f * s).dp, top = (2f * s).dp, end = (2f * s).dp)
+                modifier = Modifier.padding(start = (4f * s).dp, top = (3f * s).dp, end = (4f * s).dp)
             )
         }
     }
