@@ -540,8 +540,6 @@ private fun SettingsCard(
     }
 }
 
-private val openSettingsSections = mutableStateMapOf<String, Boolean>()
-
 @Composable
 private fun SettingsSection(
     id: String,
