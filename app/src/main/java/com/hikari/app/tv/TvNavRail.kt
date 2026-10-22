@@ -1131,8 +1131,8 @@ private fun TvSlidingSettingsHubDialog(
                                             subtitle = "Where servers come from & when playback starts",
                                         )
                                     }
-                                    var allExt by remember { mutableStateOf(SearchScope.allExtensions) }
                                     item {
+                                        var allExt by remember { mutableStateOf(SearchScope.allExtensions) }
                                         TvSlidingSettingToggleCard(
                                             title = "Search All Installed Extensions",
                                             subtitle = "Search every enabled provider for streams instead of only the origin provider",
@@ -1195,15 +1195,15 @@ private fun TvSlidingSettingsHubDialog(
                                             subtitle = "DNS mode, DoH & slow connection optimization",
                                         )
                                     }
-                                    var slowConn by remember { mutableStateOf(NetTuning.slowConnection) }
                                     item {
+                                        var slowConn by remember { mutableStateOf(NetTuning.slowConnection) }
                                         TvSlidingSettingToggleCard(
                                             title = "Slow Connection Mode",
                                             subtitle = "Increase network timeouts so slow providers and mobile hotspots don't time out early",
                                             checked = slowConn,
                                             onCheckedChange = {
                                                 slowConn = it
-                                                NetTuning.slowConnection = it
+                                                NetTuning.setSlowConnection(it)
                                                 scope.launch { invokeStoreSetter(app.store, "setSlowConnection", it) }
                                             },
                                         )
