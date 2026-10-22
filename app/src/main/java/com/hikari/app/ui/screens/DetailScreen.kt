@@ -1,4 +1,5 @@
 package com.hikari.app.ui.screens
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import com.hikari.app.i18n.I18n
 import com.hikari.app.i18n.tr
@@ -7887,73 +7888,6 @@ private fun TrailerRow(trailers: List<Trailer>, onClick: (Trailer) -> Unit) {
     }
 }
 
-@Composable
-private fun EpisodePosterCard(
-    ep: Episode,
-    fallbackImage: String? = null,
-    onClick: () -> Unit,
-    onDownload: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
-    sizeScale: Float = 1f,
-    /** Frosted-glass card variant (Settings → App Layout → Episode UI). */
-    glass: Boolean = false,
-    /** Anti-spoiler: blur the still and mask the title/overview. */
-    hideSpoilers: Boolean = false,
-) {
-    val s = sizeScale.coerceIn(0.8f, 1.6f)
-    val tokens = rememberGlassTokens()
-    Column(
-        (if (glass) {
-            modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(Brush.verticalGradient(listOf(tokens.fillTop, tokens.fillBottom)))
-                .border(1.dp, tokens.border, RoundedCornerShape(16.dp))
-                .padding((8f * s).dp)
-        } else {
-            modifier
-                .clip(RoundedCornerShape(10.dp))
-        })
-            .clickable(onClick = onClick)
-            .tvPress(previewPass = false, onClick = onClick)
-            .padding(bottom = (4f * s).dp)
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(1.55f)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            val thumb = PosterLoader.model(ep.image?.takeIf { it.isNotBlank() } ?: fallbackImage)
-            if (thumb != null) {
-                AsyncImage(
-                    model = thumb,
-                    contentDescription = tr("Episode %s").replace("%s", ep.number.toString()),
-                    modifier = Modifier.fillMaxSize()
-                        .then(if (hideSpoilers) Modifier.blur(16.dp) else Modifier),
-                    contentScale = ContentScale.Crop
-                )
-            }
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .padding((6f * s).dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color.Black.copy(alpha = 0.72f))
-                    .padding(horizontal = (7f * s).dp, vertical = (3f * s).dp)
-            ) {
-                Text(
-                    "E" + ep.number.toString().padStart(2, '0'),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-            if (isEpisodeUnaired(ep.released)) {
-                Box(
-                    Modifier
-                        .align(Alignment.TopStart)
-                        .padding((6f * s).dp)
 @Composable
 private fun EpisodePosterCard(
     ep: Episode,
