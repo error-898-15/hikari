@@ -148,6 +148,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.pointer.pointerInput
@@ -1509,8 +1512,8 @@ fun SettingsScreen(nav: NavHostController) {
     // Television draws the categories and the folder side by side; the phone
     // keeps its single column. Both read the same body above.
 
-if (isTv) {
-        val leftActiveFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    if (isTv) {
+        val leftActiveFocusRequester = remember { FocusRequester() }
         var rightPaneHasFocus by remember { mutableStateOf(false) }
 
         BackHandler(enabled = openSub != null || rightPaneHasFocus) {
@@ -1564,11 +1567,7 @@ if (isTv) {
                                     color = if (exitFocused) Color.White else Color.White.copy(alpha = 0.24f),
                                     shape = CircleShape,
                                 )
-                                .let { m ->
-                                    m.then(
-                                        androidx.compose.ui.focus.onFocusChanged { exitFocused = it.isFocused }
-                                    )
-                                }
+                                .onFocusChanged { exitFocused = it.isFocused }
                                 .clickable(
                                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                                     indication = null,
@@ -1616,15 +1615,7 @@ if (isTv) {
                             icon = target.icon,
                             title = tr(target.title),
                             selected = isSelected,
-                            modifier = if (isSelected) {
-                                Modifier.let { m ->
-                                    m.then(
-                                        androidx.compose.ui.focus.focusRequester(leftActiveFocusRequester)
-                                    )
-                                }
-                            } else {
-                                Modifier
-                            },
+                            modifier = if (isSelected) Modifier.focusRequester(leftActiveFocusRequester) else Modifier,
                             onClick = { openFolderPage(target) },
                         )
                     }
@@ -1653,11 +1644,7 @@ if (isTv) {
                     .clip(RoundedCornerShape(24.dp))
                     .background(Color(0xFF15171E).copy(alpha = 0.94f))
                     .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(24.dp))
-                    .let { m ->
-                        m.then(
-                            androidx.compose.ui.focus.onFocusChanged { rightPaneHasFocus = it.hasFocus }
-                        )
-                    }
+                    .onFocusChanged { rightPaneHasFocus = it.hasFocus }
                     .padding(horizontal = 24.dp, vertical = 20.dp),
             ) {
                 val activeTarget = (openFolder ?: tvTopFolders.firstOrNull()) to openSub
@@ -1778,11 +1765,7 @@ private fun FolderHeader(
                             color = if (backFocused) Color.White else Color.White.copy(alpha = 0.25f),
                             shape = CircleShape,
                         )
-                        .let { m ->
-                            m.then(
-                                androidx.compose.ui.focus.onFocusChanged { backFocused = it.isFocused }
-                            )
-                        }
+                        .onFocusChanged { backFocused = it.isFocused }
                         .clickable(
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                             indication = null,
@@ -1883,11 +1866,7 @@ private fun SettingsFolderRow(
                     color = if (focused) Color.White else Color.White.copy(alpha = 0.10f),
                     shape = shape,
                 )
-                .let { m ->
-                    m.then(
-                        androidx.compose.ui.focus.onFocusChanged { focused = it.isFocused }
-                    )
-                }
+                .onFocusChanged { focused = it.isFocused }
                 .clickable(
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                     indication = null,
@@ -2003,11 +1982,7 @@ private fun TvLeftRow(
                 },
                 shape = pillShape,
             )
-            .let { m ->
-                m.then(
-                    androidx.compose.ui.focus.onFocusChanged { focused = it.isFocused }
-                )
-            }
+            .onFocusChanged { focused = it.isFocused }
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null,
@@ -3813,11 +3788,7 @@ private fun SettingsToggle(
                 color = if (isTv && focused) Color.White else Color.Transparent,
                 shape = rowShape,
             )
-            .let { m ->
-                m.then(
-                    androidx.compose.ui.focus.onFocusChanged { focused = it.isFocused }
-                )
-            }
+            .onFocusChanged { focused = it.isFocused }
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null,
@@ -3847,8 +3818,6 @@ private fun SettingsToggle(
             }
         }
         Spacer(Modifier.width(12.dp))
-        // Switch has onCheckedChange = null and NO tvToggle so Left/Right keys never flip it;
-        // tapping anywhere on the row (or pressing OK) toggles it ON and OFF!
         Switch(
             checked = checked,
             onCheckedChange = null,
