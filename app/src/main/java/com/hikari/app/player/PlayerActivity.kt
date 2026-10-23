@@ -2031,13 +2031,30 @@ class PlayerActivity : ComponentActivity() {
         // Top-bar gear: the player options that don't deserve a pill of their
         // own (video fit and rotation).
         findViewById<TextView>(R.id.options_btn)?.setOnClickListener {
-            // Declared as a function so toggling the server-chooser row can
-            // re-open the menu with its new state (a static option list would
-            // need a live flow just to move one checkmark).
             fun openOptions() {
                 showGlassMenu(
                     getString(R.string.player_options),
                     listOf(
+                        GlassOption(
+                            I18n.t("Playback speed"),
+                            "${SPEEDS[speedIndex]}x · " + I18n.t("Tap to cycle speed"),
+                            iconRes = R.drawable.ic_speed, marker = RowMarker.ICON, chevron = true,
+                        ),
+                        GlassOption(
+                            I18n.t("Video enhance"),
+                            enhanceLabel(enhancePresetKey),
+                            iconRes = R.drawable.ic_enhance, marker = RowMarker.ICON, chevron = true,
+                        ),
+                        GlassOption(
+                            I18n.t("Skip intro (+85s)"),
+                            I18n.t("Jump forward 85 seconds"),
+                            iconRes = R.drawable.ic_skip, marker = RowMarker.ICON,
+                        ),
+                        GlassOption(
+                            I18n.t("Lock controls"),
+                            I18n.t("Prevent accidental touches while watching"),
+                            iconRes = R.drawable.ic_lock, marker = RowMarker.ICON,
+                        ),
                         GlassOption(
                             I18n.t("Press-and-hold speed"),
                             holdFastSpeed.toString() + "x · " + I18n.t("1 second"),
@@ -2078,9 +2095,6 @@ class PlayerActivity : ComponentActivity() {
                             iconRes = R.drawable.ic_server, marker = RowMarker.ICON,
                             selected = askServerOnPlay,
                         ),
-                        // "Stats for nerds": the codec/bitrate readout. Its own
-                        // row because it is the one player panel that is not a
-                        // choice — it reports, and can be pinned over the video.
                         GlassOption(
                             I18n.t("Codec details"),
                             if (codecOverlayPinned) {
@@ -2091,10 +2105,6 @@ class PlayerActivity : ComponentActivity() {
                             iconRes = R.drawable.ic_codec, marker = RowMarker.ICON,
                             selected = codecOverlay != null,
                         ),
-                        // Which decoders may do the work (same choice as
-                        // Settings → Player → Player controls). Best is
-                        // hardware-first with a self-fix; the forced modes
-                        // apply from the next rebuild and prompt on stutter.
                         GlassOption(
                             I18n.t("Decoder"),
                             com.hikari.app.data.AppStore.DecoderModes.label(decoderMode),
@@ -2102,8 +2112,6 @@ class PlayerActivity : ComponentActivity() {
                             chevron = true,
                         ),
                     ) + if (externalPlayerRow) {
-                        // Hand-off to VLC & co: the last row, so the existing
-                        // rows keep their indices whether it shows or not.
                         listOf(
                             GlassOption(
                                 I18n.t("Play in external player"),
@@ -2117,8 +2125,21 @@ class PlayerActivity : ComponentActivity() {
                     iconRes = R.drawable.ic_settings,
                 ) { which ->
                     when (which) {
-                        0 -> showHoldSpeedDialog { openOptions() }
-                        1 -> {
+                        0 -> {
+                            cycleSpeed()
+                            openOptions()
+                        }
+                        1 -> showEnhanceMenu()
+                        2 -> {
+                            val p = player ?: return@showGlassMenu
+                            val target = (p.currentPosition + 85_000L).coerceIn(
+                                0L, p.duration.takeIf { it > 0L } ?: Long.MAX_VALUE
+                            )
+                            seekBoth(target)
+                        }
+                        3 -> lockControls()
+                        4 -> showHoldSpeedDialog { openOptions() }
+                        5 -> {
                             iconOnlyControls = !iconOnlyControls
                             lifecycleScope.launch {
                                 runCatching {
@@ -2128,20 +2149,17 @@ class PlayerActivity : ComponentActivity() {
                             applyControlLabels()
                             openOptions()
                         }
-                        2, 3, 4 -> {
-                            resizeIndex = which - 2
-                            playerView?.resizeMode = when (which - 2) {
+                        6, 7, 8 -> {
+                            resizeIndex = which - 6
+                            playerView?.resizeMode = when (which - 6) {
                                 1 -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
                                 2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
                                 else -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                             }
                             updateResizeButton()
                         }
-                        5 -> cycleRotation()
-                        6 -> {
-                            // Same setting as Settings -> Playback start -> the
-                            // "Don't play directly" switch, so the player can
-                            // flip it without leaving the video.
+                        9 -> cycleRotation()
+                        10 -> {
                             askServerOnPlay = !askServerOnPlay
                             askServerPrefLoaded = true
                             val ask = askServerOnPlay
@@ -2152,15 +2170,15 @@ class PlayerActivity : ComponentActivity() {
                             }
                             openOptions()
                         }
-                        7 -> showCodecOverlay()
-                        8 -> showDecoderDialog { openOptions() }
-                        9 -> openExternalPlayer()
+                        11 -> showCodecOverlay()
+                        12 -> showDecoderDialog { openOptions() }
+                        13 -> openExternalPlayer()
                     }
                 }
             }
             openOptions()
         }
-
+        
         // The download notification needs POST_NOTIFICATIONS on API 33+; the
         // launcher must be registered here, before the first download starts.
         if (Build.VERSION.SDK_INT >= 33) {
@@ -4804,28 +4822,30 @@ class PlayerActivity : ComponentActivity() {
      * this map only replaces the shipped defaults while the TV skin is active.
      */
     private fun effectiveControlSlot(control: PlayerControl): PlayerControlSlot {
-        if (PlayerSkins.normalize(skin) != PlayerSkins.TV ||
-            !PlayerControlsConfig.isDefault(controlLayout)
-        ) return controlLayout[control] ?: control.defaultSlot
+        if (!PlayerControlsConfig.isDefault(controlLayout)) {
+            return controlLayout[control] ?: control.defaultSlot
+        }
         return when (control) {
             PlayerControl.FAVORITE,
             PlayerControl.DOWNLOAD,
             PlayerControl.PIP,
-            PlayerControl.OPTIONS,
-            PlayerControl.LOCK -> PlayerControlSlot.TOP_BAR
+            PlayerControl.OPTIONS -> PlayerControlSlot.TOP_BAR
 
-            PlayerControl.SPEED,
             PlayerControl.EPISODES,
             PlayerControl.SOURCES,
             PlayerControl.QUALITY,
             PlayerControl.AUDIO,
-            PlayerControl.SUBS,
-            PlayerControl.ROTATE,
-            PlayerControl.SKIP -> PlayerControlSlot.BOTTOM_LEFT
+            PlayerControl.SUBS -> PlayerControlSlot.BOTTOM_LEFT
 
-            PlayerControl.ENHANCE,
-            PlayerControl.EXTERNAL,
             PlayerControl.RESIZE -> PlayerControlSlot.BOTTOM_RIGHT
+
+            // Speed, Rotate, Skip, Enhance, Lock & External live cleanly inside the More (Options) menu
+            PlayerControl.SPEED,
+            PlayerControl.ROTATE,
+            PlayerControl.SKIP,
+            PlayerControl.ENHANCE,
+            PlayerControl.LOCK,
+            PlayerControl.EXTERNAL -> PlayerControlSlot.HIDDEN
         }
     }
 
