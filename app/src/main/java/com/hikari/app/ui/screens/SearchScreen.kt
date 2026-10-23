@@ -1,4 +1,5 @@
 package com.hikari.app.ui.screens
+
 import com.hikari.app.tv.TvMode
 import com.hikari.app.tv.TvUi
 import com.hikari.app.i18n.tr
@@ -7,6 +8,8 @@ import com.hikari.app.i18n.I18n
 import com.hikari.app.ui.components.GlassSearchField
 
 import android.app.Application
+import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -46,6 +50,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -83,7 +88,6 @@ import com.hikari.app.ui.Artwork
 import com.hikari.app.ui.PosterLoader
 import com.hikari.app.ui.RatingBadge
 import com.hikari.app.ui.components.EmptyState
-import com.hikari.app.ui.components.GlassSearchField
 import com.hikari.app.ui.navigation.LocalTaskbarInset
 import com.hikari.app.ui.navigation.Routes
 import com.hikari.app.ui.rememberPosterScore
@@ -99,8 +103,68 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.launch
+
+/**
+ * Self-contained preference for showing/hiding the Search Filters (Genre, Year & Kind)
+ * below the search bar. Default is FALSE (hidden), and can be toggled in Settings > App Layout.
+ */
+object SearchFilterPrefs {
+    private const val PREFS_NAME = "hikari_search_filter_prefs"
+    private const val KEY_SHOW_FILTERS = "show_search_filters"
+
+    var showSearchFilters by mutableStateOf(false)
+        private set
+
+    fun init(context: Context) {
+        val p = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        showSearchFilters = p.getBoolean(KEY_SHOW_FILTERS, false)
+    }
+
+    fun setShowFilters(context: Context, enabled: Boolean) {
+        showSearchFilters = enabled
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_SHOW_FILTERS, enabled)
+            .apply()
+    }
+}
+
+/**
+ * Card for Settings > App Layout to toggle Search Filters on/off.
+ */
+@Composable
+fun SearchFiltersSettingCard() {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { SearchFilterPrefs.init(context) }
+    Column(Modifier.padding(16.dp)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { SearchFilterPrefs.setShowFilters(context, !SearchFilterPrefs.showSearchFilters) },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    tr("Search filters (Genre, Year & Type)"),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    tr("Off hides the Movie/Series/Anime, Year and Genre filter bars under the search box for a cleaner search screen."),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(
+                checked = SearchFilterPrefs.showSearchFilters,
+                onCheckedChange = { SearchFilterPrefs.setShowFilters(context, it) },
+            )
+        }
+    }
+}
 
 @OptIn(FlowPreview::class)
 class SearchViewModel(
@@ -109,84 +173,37 @@ class SearchViewModel(
 ) : AndroidViewModel(app) {
     private val manager = (app as HikariApp).providers
     private val repo = ContentRepository(manager)
-
-    /**
-     * The application as the app class.
-     *
-     * [app] is a plain constructor PARAMETER, which is in scope in the property
-     * initializers and the `init` block below but not in the methods (which is
-     * what the history buttons are), so the cast is kept here once and every
-     * method goes through it.
-     */
     private val hikari: HikariApp = app as HikariApp
-
-    /** The user's own collections — the local half of a search. */
     private val collections = com.hikari.app.data.CollectionsRepository(manager)
 
-    /**
-     * The saved personal catalogs, so the provider row can offer them beside the
-     * extensions. A catalog IS a place a title can be looked for ("search inside
-     * abc"), which is exactly what that row means, and the user asked for it
-     * twice: the names simply were not there to pick.
-     */
     val userCollections: Flow<List<com.hikari.app.data.Collection>> =
         (app as HikariApp).store.collectionsFlow()
 
-    // Query + selection live in SavedStateHandle so they survive the activity
-    // being recreated while the video player runs. Without this, watching a
-    // stream from the search results and coming back found an empty screen (the
-    // ViewModel was recreated and the query lost) — forcing a re-search after
-    // every video. On recreation the saved query is restored, so the search
-    // re-runs automatically and the results come straight back.
     private val _query = MutableStateFlow(savedState.get<String>("query") ?: "")
     val query: StateFlow<String> = _query.asStateFlow()
 
-    /** Selected provider ids to search in. EMPTY = search ALL providers.
-     *
-     *  A key is either an extension's id or a personal catalog's
-     *  ("collection:<id>" — see [Routes.COLLECTION_PROVIDER_PREFIX]), so the one
-     *  selection carries both kinds of scope through the Search route. */
     private val _selectedProviders =
         MutableStateFlow(savedState.get<ArrayList<String>>("providers")?.toSet() ?: emptySet())
     val selectedProviders: StateFlow<Set<String>> = _selectedProviders.asStateFlow()
 
     val providers: StateFlow<List<ContentProvider>> = manager.providers
 
-    /**
-     * Results + status live in the process-wide [SearchSession], NOT here, so
-     * the multi-page scan survives this ViewModel being recreated (it is, every
-     * time the user watches something and comes back). Returning to Search then
-     * shows the results already collected and resumes the same scan — instead
-     * of restarting from page 1.
-     */
     val results: StateFlow<List<MediaItem>> = SearchSession.results
     val searching: StateFlow<Boolean> = SearchSession.searching
 
-    /**
-     * Titles matched inside the user's OWN collections ("From your
-     * collections"): an imported list or a hand-built TMDB source is theirs,
-     * not an extension's, so nothing else would ever surface it in Search.
-     */
     private val _collectionHits =
         MutableStateFlow<List<com.hikari.app.data.CollectionsRepository.CollectionHit>>(emptyList())
     val collectionHits: StateFlow<List<com.hikari.app.data.CollectionsRepository.CollectionHit>> =
         _collectionHits.asStateFlow()
 
-    /**
-     * The recent searches, newest first — the chips under the search box (see
-     * [AppStore.searchHistory]). They are recorded by [init], the one place a
-     * query that actually RAN is known.
-     */
     val history: Flow<List<String>> = hikari.store.searchHistoryFlow()
 
-    /** Forgets one remembered search — the ✕ on its chip. */
     fun forgetSearch(query: String) {
         viewModelScope.launch {
             runCatching { hikari.store.removeSearchHistory(query) }
         }
     }
 
-    /** Forgets every remembered search ("Clear all"). */
     fun forgetAllSearches() {
         viewModelScope.launch {
             runCatching { hikari.store.clearSearchHistory() }
@@ -204,52 +221,18 @@ class SearchViewModel(
                         SearchSession.clear()
                         return@collectLatest
                     }
-                    // Remember what was searched for: this is the DEBOUNCED
-                    // query (the box itself changes on every keystroke), so what
-                    // lands in the history is a query the user stopped typing on
-                    // — and the store drops anything under two characters. On
-                    // the view model's own scope, so a store failure can never
-                    // kill the search flow.
                     viewModelScope.launch {
                         runCatching { hikari.store.addSearchHistory(q) }
                     }
-                    // The catalog lookup needs at least two characters (see
-                    // [CollectionsRepository.searchIn]); below that it answers
-                    // nothing and never calls back, so the previous query's hits
-                    // would stay under a one-letter query.
                     if (q.trim().length < 2) _collectionHits.value = emptyList()
-                    // The selection can name extensions, personal catalogs, or
-                    // both. Catalogs are searched locally (their titles live in
-                    // the collection, or come from a catalog we can ask) and
-                    // NEVER by the extension sweep — asking an extension "do you
-                    // have abc" is a different question from "what is inside abc".
                     val extensionIds = selection.filterNot { Routes.isCollectionScope(it) }
                         .toSet()
                     val catalogIds = selection.filter { Routes.isCollectionScope(it) }
                         .map { Routes.collectionIdOfScope(it) }
                         .toSet()
-                    // "All" is the EMPTY selection. A selection made of catalogs
-                    // only means "only those catalogs", so the extension sweep is
-                    // skipped rather than silently widened to everywhere — that
-                    // is the whole point of picking one.
                     val sweepExtensions = selection.isEmpty() || extensionIds.isNotEmpty()
-                    // Both halves run together, and a newer query cancels both:
-                    // the extension sweep and the local catalog lookup can't
-                    // disagree about which query they are answering.
                     kotlinx.coroutines.coroutineScope {
                         launch {
-                            // Published as they are found: an imported list is
-                            // instant, an extension catalog in a personal
-                            // catalog is a network fetch, and waiting for the
-                            // slowest source would hold the row back for
-                            // seconds. A cancelled run (the user typed on) keeps
-                            // whatever it had published — the newer query's list
-                            // replaces it — instead of blanking the row on every
-                            // keystroke.
-                            //
-                            // A scoped search (a catalog is picked) gets a bigger
-                            // cap: the user is asking "what is in here", so the
-                            // answer is the whole shelf, not the first screenful.
                             val cap = if (catalogIds.isEmpty()) 24 else 60
                             runCatching {
                                 collections.searchIn(q, catalogIds, cap) { partial ->
@@ -271,24 +254,17 @@ class SearchViewModel(
         savedState["query"] = q
     }
 
-    /** "All sources" — empty set means every provider. */
     fun selectAll() {
         _selectedProviders.value = emptySet()
         savedState["providers"] = ArrayList<String>()
     }
 
-    /** Selects exactly one provider — used by Home's "Search this extension"
-     *  entry point, which scopes the search to the catalog you were browsing. */
     fun selectProvider(id: String) {
         if (id.isBlank()) return
         _selectedProviders.value = setOf(id)
         savedState["providers"] = ArrayList(listOf(id))
     }
 
-    /** The whole selection at once — what the provider picker's Done button
-     *  saves (a multi pick). An empty list is "All sources" rather than "search
-     *  nothing", which is the same meaning an empty selection has everywhere
-     *  else in this screen. */
     fun setProviders(keys: List<String>) {
         val next = keys.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
         if (next.isEmpty()) {
@@ -314,31 +290,17 @@ fun SearchScreen(
     val selected by vm.selectedProviders.collectAsState()
     val providers by vm.providers.collectAsState()
     val history by vm.history.collectAsState(initial = emptyList())
-    // `initial` is required for a plain Flow (a StateFlow carries its own), and
-    // it doubles as "no catalogs yet" for the first frame.
     val collections by vm.userCollections.collectAsState(initial = emptyList())
 
-    // Search-bar translator state: the text the user typed before translating
-    // (null while showing English), the current target language, the language
-    // menu, and whether a translation is in flight.
     var translatedFrom by remember { mutableStateOf<String?>(null) }
     var targetLang by rememberSaveable { mutableStateOf("zh-CN") }
     var langMenu by remember { mutableStateOf(false) }
     var translating by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    // Television overscan: sets that crop the frame (~5-10% on every edge)
-    // cut whatever the results grid draws against it — the "posters are cut
-    // ~10% and scrolling only trades one cut row for the next" report. The
-    // grid keeps this clear of every edge on TV only (see [TvUi] overscan);
-    // phones are untouched, and a set that shows the full frame keeps the
-    // user's 0.
     val context = LocalContext.current
-    // Auto-focus the search box (phones only): opening the Search tab puts
-    // the cursor in the bar and raises the keyboard, so the user types
-    // straight away instead of tapping the bar a second time. One-shot per
-    // visit — results updates must never steal focus back. TV never raises
-    // a software keyboard, so it only takes focus when a query is preset.
+    LaunchedEffect(Unit) { SearchFilterPrefs.init(context) }
+
     val searchFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var searchAutoFocused by rememberSaveable { mutableStateOf(false) }
@@ -359,25 +321,9 @@ fun SearchScreen(
     val overscanDp by overscanFlow.collectAsState(initial = TvUi.DEFAULT_OVERSCAN_DP)
     val tvEdge = if (TvMode.current()) overscanDp.dp else 0.dp
 
-    // ---- Result filters (kind + year) -------------------------------------
-    //
-    // These narrow what has ALREADY been found rather than being added to the
-    // query, and that is deliberate: searching every installed extension is a
-    // long multi-page scan, so a filter that re-ran it would make picking a
-    // year feel like a new search. Here a tap is instant, and the answer is the
-    // same list, filtered — "search moana, pick the year, keep only the movie"
-    // without paying for the sweep again.
     var kindFilterKey by rememberSaveable { mutableStateOf("all") }
     val kindFilter = SearchKindFilter.fromKey(kindFilterKey)
 
-    // The years to keep, chosen from a FIXED list of every year there is —
-    // never from the results — and holding as many as the user picks
-    // ("2001,2002,2004" keeps exactly those three). The old control offered
-    // only the years the results so far happened to carry, which meant a year
-    // could not be picked until a title from it had already been found: the
-    // filter was chosen after the fact instead of before the search. Held as a
-    // sorted, comma-joined string so it survives the ViewModel/activity being
-    // recreated (watching something and coming back).
     var yearsKey by rememberSaveable { mutableStateOf("") }
     val yearsFilter: Set<Int> = remember(yearsKey) {
         yearsKey.split(',').mapNotNull { it.trim().toIntOrNull() }.filter { it > 1800 }.toSet()
@@ -388,12 +334,7 @@ fun SearchScreen(
     fun toggleYear(year: Int) {
         setYears(if (year in yearsFilter) yearsFilter - year else yearsFilter + year)
     }
-    // The GENRES to keep, chosen from a FIXED list of every genre there is —
-    // never from the results — and holding as many as the user picks ("action,
-    // comedy" keeps both). Held exactly the way the years are (a sorted,
-    // comma-joined string of lower-cased names, so it survives the player
-    // recreating the activity). The names are compared against what the item's
-    // own source said (see [MediaItem.passesSearchFilter]).
+
     var genreKey by rememberSaveable { mutableStateOf("") }
     val genreFilter: Set<String> = remember(genreKey) {
         genreKey.split(',').mapNotNull { it.trim().takeIf { g -> g.isNotEmpty() } }.toSet()
@@ -406,53 +347,32 @@ fun SearchScreen(
         if (key.isEmpty()) return
         setGenres(if (key in genreFilter) genreFilter - key else genreFilter + key)
     }
-    // A filter is only "on" when it can actually hide something.
-    val filterOn = kindFilter != SearchKindFilter.ALL ||
-        yearsFilter.isNotEmpty() || genreFilter.isNotEmpty()
-    val filtered = remember(results, kindFilter, yearsKey, genreKey) {
+
+    val showFilters = SearchFilterPrefs.showSearchFilters
+    val filterOn = showFilters && (kindFilter != SearchKindFilter.ALL ||
+        yearsFilter.isNotEmpty() || genreFilter.isNotEmpty())
+    val filtered = remember(results, filterOn, kindFilter, yearsKey, genreKey) {
         if (!filterOn) results
         else results.filter { it.passesSearchFilter(kindFilter, yearsFilter, genreFilter) }
     }
-    // What the KIND filter kept although the provider never said what it is
-    // (those are simply shown), and what the YEAR and GENRE filters dropped for
-    // the same reason — the numbers the grid explains itself with, so it can
-    // never look like it silently ignored a filter.
-    val keptUnknownKind = remember(results, kindFilter, yearsKey, genreKey) {
+    val keptUnknownKind = remember(results, filterOn, kindFilter, yearsKey, genreKey) {
         if (!filterOn) 0
         else results.count { it.unknownKindKept(kindFilter, yearsFilter, genreFilter) }
     }
-    val hiddenNoYear = remember(results, kindFilter, yearsKey, genreKey) {
-        // Only the ones the KIND filter would have shown: an item dropped by
-        // "Movies" is not hidden because it has no year.
-        if (yearsFilter.isEmpty()) 0 else results.count {
+    val hiddenNoYear = remember(results, filterOn, kindFilter, yearsKey, genreKey) {
+        if (!filterOn || yearsFilter.isEmpty()) 0 else results.count {
             it.year == null && it.passesSearchFilter(kindFilter, emptySet(), genreFilter)
         }
     }
-    val hiddenNoGenre = remember(results, kindFilter, yearsKey, genreKey) {
-        // The same rule, for the genre strip: a result whose source said no
-        // genre at all cannot be presented as one of the picked genres.
-        if (genreFilter.isEmpty()) 0 else results.count {
+    val hiddenNoGenre = remember(results, filterOn, kindFilter, yearsKey, genreKey) {
+        if (!filterOn || genreFilter.isEmpty()) 0 else results.count {
             it.genres.isEmpty() && it.passesSearchFilter(kindFilter, yearsFilter, emptySet())
         }
     }
 
-    // ---- Engine filter (which of the searched engines' hits to show) -----
-    //
-    // This only means something when more than one source is in play, so the
-    // strip is drawn only when the current results actually carry hits from two
-    // or more ENGINES (CloudStream plugins, Hikari extensions, Nuvio providers,
-    // Vega providers, …). It narrows the grid to one of them — "search black
-    // clover everywhere, then read just the Hikari extensions' hits" — and it
-    // does that WITHOUT re-running the scan, because it filters what has already
-    // landed. The counts are taken from the results as the kind/year/genre
-    // strips left them, so picking a chip can never change the chip row itself:
-    // the way back ("All") stays put, first, with the same number next to it.
-    // An item whose provider is not installed any more (or a collection hit) has
-    // no engine, so it is simply never counted and never shows under a chip.
     val engineOf = remember(providers) {
         providers.associate { it.config.id to it.config.type.groupLabel }
     }
-    // The engine picked, by its label; empty = every engine.
     var engineKey by rememberSaveable { mutableStateOf("") }
     val engineCounts = remember(filtered, engineOf) {
         val counts = HashMap<String, Int>()
@@ -460,14 +380,8 @@ fun SearchScreen(
             val label = engineOf[item.providerId] ?: continue
             counts[label] = (counts[label] ?: 0) + 1
         }
-        // Most hits first, so the strip leads with where the results are.
         counts.entries.sortedByDescending { it.value }.associate { it.key to it.value }
     }
-    // A pick whose engine has no hits left under the current kind/year/genre
-    // strips filters nothing, and would leave the grid empty with a chip that is
-    // no longer on the strip to undo it: such a pick is ignored here, and the
-    // effect below drops it from the saved state so it cannot come back on its
-    // own when the strips change again.
     val activeEngine = engineKey.takeIf { engineCounts.containsKey(it) }.orEmpty()
     val visible = remember(filtered, activeEngine, engineOf) {
         if (activeEngine.isBlank()) filtered
@@ -477,12 +391,6 @@ fun SearchScreen(
         if (engineKey.isNotBlank() && !engineCounts.containsKey(engineKey)) engineKey = ""
     }
 
-    // The name of the one selected source, when exactly one is picked — an
-    // extension, or one of the user's catalogs. It is what makes the search box
-    // say "Search in abc…" instead of "Search in 1 selected provider", so a
-    // scoped search announces its scope by NAME (the report was that a catalog
-    // could not be picked here at all; saying which one is picked is half of
-    // making that legible).
     val soleName = remember(selected, providers, collections) {
         if (selected.size != 1) return@remember null
         val key = selected.first()
@@ -498,10 +406,6 @@ fun SearchScreen(
         if (initialProvider.isNotBlank()) vm.selectProvider(initialProvider)
     }
 
-    // One tap EN -> target language (Chinese by default), tap again to restore
-    // the original English the user typed. The source language is whatever the
-    // user wrote, auto-detected by the translator, so the same button also
-    // turns a Chinese title back into English when it was already translated.
     fun toggleTranslate() {
         if (translating) return
         val restore = translatedFrom
@@ -525,7 +429,12 @@ fun SearchScreen(
 
     Column(Modifier.fillMaxSize()) {
         if (TvMode.current()) {
-            com.hikari.app.tv.TvScreenHeader(title = tr("Search"), subtitle = if (selected.isEmpty()) tr("All providers") else if (soleName != null) soleName else tr("%s sources").replace("%s", selected.size.toString()))
+            com.hikari.app.tv.TvScreenHeader(
+                title = tr("Search"),
+                subtitle = if (selected.isEmpty()) tr("All providers")
+                else if (soleName != null) soleName
+                else tr("%s sources").replace("%s", selected.size.toString())
+            )
         }
         GlassSearchField(
             value = query,
@@ -547,9 +456,6 @@ fun SearchScreen(
                     Box(
                         Modifier
                             .clip(RoundedCornerShape(50))
-                            // The D-pad half: a raw pointerInput is invisible to
-                            // the focus system, so a remote could not reach the
-                            // translate button at all — see [Modifier.tvPress].
                             .tvPress { toggleTranslate() }
                             .pointerInput(Unit) {
                                 detectTapGestures(
@@ -593,12 +499,6 @@ fun SearchScreen(
             }
         )
         // ---- Recent searches ----
-        //
-        // Shown only while the box is EMPTY: once a search is running or has
-        // results, the screen's job is the results and a strip of old queries
-        // above them is chrome to scroll past. With an empty box it is exactly
-        // what the empty state below is for — the answer to "what do I search
-        // for?" — so the two live together, and a chip re-runs the search.
         if (query.isBlank() && history.isNotEmpty()) {
             Row(
                 Modifier
@@ -624,9 +524,6 @@ fun SearchScreen(
                 items(history.distinct(), key = { it }) { past ->
                     HistoryChip(
                         text = past,
-                        // Picking one is a new search, not a restored one: the
-                        // translator's "show the original" state does not apply
-                        // to a query the user did not type this time.
                         onPick = {
                             translatedFrom = null
                             vm.setQuery(past)
@@ -637,18 +534,6 @@ fun SearchScreen(
             }
         }
         if (providers.isNotEmpty() || collections.isNotEmpty()) {
-            // ---- Where to search: a button, and the picker it opens ----
-            //
-            // This used to be a HORIZONTAL row of chips (one per extension, plus
-            // one per personal catalog) with a "Filter providers…" box above it,
-            // and with a few dozen extensions installed it was unusable: a name
-            // you could not see was a provider you could not pick. The user asked
-            // for the picker Home's own header uses instead — a button that opens
-            // a full-height list with a search box, the engine categories, and
-            // multi-select — and for the outer filter box to go away with it,
-            // because the picker carries its own search. Doing that removed the
-            // chips entirely, so what is left here is one line that says WHAT
-            // will be searched and one tap to change it.
             var showProviders by remember { mutableStateOf(false) }
             var providerKind by remember { mutableStateOf<ProviderType?>(null) }
             val scopeLabel = when {
@@ -656,8 +541,6 @@ fun SearchScreen(
                 soleName != null -> soleName
                 else -> I18n.t("%s sources").replace("%s", selected.size.toString())
             }
-            // The same sentence the old status line carried, now the button's
-            // second line: a scoped search announces its scope by NAME.
             val scopeNote = when {
                 selected.isEmpty() -> tr("Searching every source")
                 soleName != null -> I18n.t("Searching in %s").replace("%s", soleName)
@@ -679,9 +562,6 @@ fun SearchScreen(
                         showProviders = false
                         Routes.safeNavigate(nav, Routes.COLLECTIONS)
                     },
-                    // A plain tap picks exactly one source (the usual case: "search
-                    // inside this extension"); the sheet's hold-for-multi mode and
-                    // its Done button save the whole set.
                     onPick = { key ->
                         showProviders = false
                         if (key == null) vm.selectAll() else vm.selectProvider(key)
@@ -694,14 +574,9 @@ fun SearchScreen(
                 )
             }
         }
-        // ---- Result filters: kind + year (see the state at the top) ---------
-        //
-        // Same chip row as the providers above, so the two read as one control
-        // strip: what to search, then what to keep. The kind chips and the year
-        // strip are shown from the moment the screen is up — NOT only once
-        // results exist — because the filter is meant to be chosen BEFORE (or
-        // while) the scan runs.
-        run {
+
+        // ---- Optional Result filters (Hidden by default; enabled via Settings > App Layout) ----
+        if (showFilters) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -750,11 +625,6 @@ fun SearchScreen(
                     )
                 }
                 item {
-                    // Anime: a KIND of its own, though no provider has an
-                    // "anime" media type — see [MediaItem.looksAnime] for what
-                    // the filter counts as one (the addon's type string, an
-                    // "Anime" tag, or TMDB's "Animation", which is the genre
-                    // every TMDB-sourced anime title carries).
                     FilterChip(
                         selected = kindFilter == SearchKindFilter.ANIME,
                         onClick = { kindFilterKey = SearchKindFilter.ANIME.key },
@@ -769,11 +639,6 @@ fun SearchScreen(
                     )
                 }
                 item {
-                    // The filter's own status, and the way to clear it: it lists
-                    // what is picked (with a ✕ to drop it) and nothing else — the
-                    // years themselves are the strip below, which is where they
-                    // are chosen. It reads "Any year" and stays a no-op while
-                    // nothing is picked.
                     val picked = when {
                         yearsFilter.isEmpty() -> tr("Any year")
                         yearsFilter.size <= 3 ->
@@ -794,12 +659,6 @@ fun SearchScreen(
                     )
                 }
             }
-            // The YEAR strip: every year there is, in one slim scroller of its
-            // own, tapped to toggle (multi-select — 2001 · 2002 · 2004 keeps
-            // all three at once). It is deliberately a short, thin box: a year
-            // is four digits, so the control needs no more height than a chip
-            // row, and a fixed list means a year can be picked before the
-            // search has found a single title.
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
@@ -833,21 +692,6 @@ fun SearchScreen(
                     }
                 }
             }
-            // ---- The genre strip ----
-            //
-            // The same shape as the year strip above it (a thin box of chips),
-            // because it is the same kind of control: a FIXED list of every
-            // genre, tapped to toggle, multi-select ("action, comedy" keeps both).
-            // A small caption says what it is and how many are picked, since
-            // unlike a year a genre cannot be recognised from the chip alone.
-            //
-            // The strip is also searchable now, the way Home's "Browse by genre"
-            // row is: the vocabulary is TMDB's film and television names plus
-            // every anime/manga tag, so "Isekai" or "Comedy" sits far along a
-            // row that has to be dragged to reach it. The field beside the
-            // caption filters the chips as they are typed and matches both the
-            // name a chip prints and the English name it is filed under, so a
-            // translated chip is still found by its English word.
             var genreQuery by rememberSaveable { mutableStateOf("") }
             val genreChips = remember(genreQuery) {
                 val q = genreQuery.trim().lowercase()
@@ -856,9 +700,6 @@ fun SearchScreen(
                     g.lowercase().contains(q) || I18n.t(g).lowercase().contains(q)
                 }
             }
-            // A new filter starts at the top of the strip: a match that happens
-            // to sort late would otherwise be filtered in BEHIND the scrolled-away
-            // chips and the strip would look like it had found nothing.
             val genreStripState = rememberLazyListState()
             LaunchedEffect(genreQuery) {
                 if (genreChips.isNotEmpty()) genreStripState.scrollToItem(0)
@@ -905,44 +746,40 @@ fun SearchScreen(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp),
                 )
             } else {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                border = BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 6.dp)
-                    .height(34.dp),
-            ) {
-                LazyRow(
-                    state = genreStripState,
-                    contentPadding = PaddingValues(horizontal = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 6.dp)
+                        .height(34.dp),
                 ) {
-                    item {
-                        GenreChip(
-                            label = tr("Any"),
-                            selected = genreFilter.isEmpty(),
-                            onClick = { setGenres(emptySet()) },
-                        )
-                    }
-                    items(genreChips) { genre ->
-                        GenreChip(
-                            // `trTag`, not `tr`: a genre is CONTENT (it comes
-                            // from TMDB's own vocabulary and from extension
-                            // tags), so it goes through the same dictionary and
-                            // tag translator a title's genre chips do.
-                            label = trTag(genre),
-                            selected = genre.trim().lowercase() in genreFilter,
-                            onClick = { toggleGenre(genre) },
-                        )
+                    LazyRow(
+                        state = genreStripState,
+                        contentPadding = PaddingValues(horizontal = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        item {
+                            GenreChip(
+                                label = tr("Any"),
+                                selected = genreFilter.isEmpty(),
+                                onClick = { setGenres(emptySet()) },
+                            )
+                        }
+                        items(genreChips) { genre ->
+                            GenreChip(
+                                label = trTag(genre),
+                                selected = genre.trim().lowercase() in genreFilter,
+                                onClick = { toggleGenre(genre) },
+                            )
+                        }
                     }
                 }
-            }
             }
             if ((filterOn || activeEngine.isNotBlank()) && results.isNotEmpty()) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
@@ -950,10 +787,6 @@ fun SearchScreen(
                         if (visible.isEmpty()) {
                             tr("Nothing in these results matches the filter.")
                         } else {
-                            // Two single-placeholder phrases joined the way the
-                            // rest of the app joins counted labels (see
-                            // ExtensionsScreen's "N repos · M enabled"), so each
-                            // half is a key the dictionaries can hold.
                             tr("%s shown").replace("%s", visible.size.toString()) +
                                 " · " +
                                 tr("%s found").replace("%s", results.size.toString())
@@ -988,9 +821,67 @@ fun SearchScreen(
                 }
             }
         }
+
         if (searching) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
         }
+
+        // Expanded provider state for "See all >" full grid view
+        var expandedProviderId by rememberSaveable(query) { mutableStateOf<String?>(null) }
+        BackHandler(enabled = expandedProviderId != null) {
+            expandedProviderId = null
+        }
+
+        // ---- Live Suggestions strip while typing ----
+        val liveSuggestions = remember(query, visible) {
+            val q = query.trim()
+            if (q.length < 2 || visible.isEmpty()) emptyList()
+            else visible.map { it.title.trim() }
+                .filter { it.isNotBlank() && !it.equals(q, ignoreCase = true) }
+                .distinct()
+                .take(8)
+        }
+        if (liveSuggestions.isNotEmpty() && expandedProviderId == null) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+            ) {
+                items(liveSuggestions, key = { "sug:$it" }) { suggestion ->
+                    Surface(
+                        onClick = {
+                            translatedFrom = null
+                            vm.setQuery(suggestion)
+                        },
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Filled.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                suggestion,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 180.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         if (query.isBlank() && results.isEmpty() && collectionHits.isEmpty()) {
             EmptyState(
                 title = tr("Search"),
@@ -1006,20 +897,10 @@ fun SearchScreen(
                 action = null
             )
         } else {
-            // Built once per provider list, not once per recomposition: this
-            // screen recomposes on every keystroke and on every batch of results
-            // arriving, and the map has one entry per installed extension.
             val namesById = remember(providers) {
                 providers.associateBy({ it.config.id }, { it.config.name })
             }
             Column(Modifier.fillMaxSize()) {
-                // One chip per engine that answered, plus "All" — see the
-                // engine-filter state at the top. Drawn only when there are two
-                // or more engines to choose between, so a scoped search (one
-                // source, one engine) never sees a strip that can do nothing —
-                // or, at any count, while one engine's chip is in force: that is
-                // the only way to undo a pick whose competitors the other strips
-                // have narrowed away.
                 if (engineCounts.size >= 2 || activeEngine.isNotBlank()) {
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 10.dp),
@@ -1037,8 +918,6 @@ fun SearchScreen(
                             EngineChip(
                                 label = entry.key + " · " + entry.value,
                                 selected = activeEngine == entry.key,
-                                // Tapping the one in force clears it, like the
-                                // picker's own engine chips.
                                 onClick = {
                                     engineKey = if (activeEngine == entry.key) "" else entry.key
                                 },
@@ -1046,10 +925,7 @@ fun SearchScreen(
                         }
                     }
                 }
-                // The user's own collections first: an imported list or a
-                // hand-built TMDB source belongs to them, and no extension
-                // would ever hand it back.
-                if (collectionHits.isNotEmpty()) {
+                if (collectionHits.isNotEmpty() && expandedProviderId == null) {
                     CollectionHitsRow(
                         if (filterOn) {
                             collectionHits.filter {
@@ -1072,158 +948,258 @@ fun SearchScreen(
                         )
                     }
                 }
-                // Two providers can answer with the same title and the same id
-                // (and one provider can answer twice): a repeated Lazy key is a
-                // hard crash, so repeats are dropped before the grid is built.
-                //
-                // Both the dedupe and the poster style are hoisted out of the
-                // CELL: per cell this allocated a fresh list on every
-                // recomposition and opened a DataStore collection per poster on
-                // screen, which is a lot of subscriptions for one grid (see
-                // [com.hikari.app.ui.components.MediaRow]).
+
                 val gridItems = rememberVisibleItems(visible)
-                val searchKeys = remember(gridItems) { gridItems.map { it.uniqueId } }
+                val groupedByProvider = remember(gridItems) {
+                    gridItems.groupBy { it.providerId }.entries.toList()
+                }
                 val style = rememberPosterStyle()
                 val tvSearch = TvMode.current()
-                val searchCols = if (tvSearch) 3 else TvUi.resultsColumns()
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(searchCols),
-                    // Results position held per query+engine (see
-                    // ScrollKeeper): Back from a title lands where the grid
-                    // was, and a new query starts at its own slot.
-                    state = com.hikari.app.ui.components.keptGridState(
-                        "search:$query|$activeEngine",
-                        itemKeys = searchKeys,
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                contentPadding = PaddingValues(
-                    start = 10.dp + tvEdge,
-                    end = 10.dp + tvEdge,
-                    top = 8.dp + tvEdge,
-                    // Clear of the floating taskbar (0 when there is no bar),
-                    // plus the overscan edge on TV so the last row can scroll
-                    // fully into view instead of parking cut off.
-                    bottom = LocalTaskbarInset.current + 12.dp + tvEdge +
-                        if (TvMode.current()) 28.dp else 0.dp,
-                ),
-                horizontalArrangement = Arrangement.spacedBy(if (tvSearch) 14.dp else 8.dp),
-                verticalArrangement = Arrangement.spacedBy(if (tvSearch) 20.dp else 10.dp)
-            ) {
-                items(gridItems, key = { it.uniqueId }) { item ->
-                    if (tvSearch) {
-                        val go = {
-                            Routes.safeNavigate(
-                                nav,
-                                if (item.rawType == "manga") Routes.mangaRoute(item.providerId, item.id, item.title, item.posterUrl)
-                                else Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
-                            )
-                        }
-                        if (style.isCinema(true)) {
-                            com.hikari.app.tv.TvCinemaCard(item = item, onClick = go)
-                        } else {
-                            com.hikari.app.tv.TvVerticalCard(item = item, onClick = go)
-                        }
-                    } else {
-                    // Show scores (Settings → App Layout) draws here too — the
-                    // badge warms the ratings cache for the title and prints
-                    // whatever is known. Null when the switch is off.
-                    val badge = rememberPosterScore(item, style)
-                    // Not clipped to the card rounding: the curve cut into
-                    // the title's edges at high corner values (see
-                    // CatalogCard). Only the artwork Box below is rounded.
-                    Column(
-                        Modifier
-                            .clickable {
-                                Routes.safeNavigate(
-                                    nav,
-                                    // A manga engine's results are MANGA: they open
-                                    // the manga detail page (chapters, follow,
-                                    // reader), not the video one, which would ask
-                                    // the extension for servers it cannot serve.
-                                    // This is what makes a tag's "Global search"
-                                    // land somewhere sensible — and what makes any
-                                    // manga search work, not just that one.
-                                    if (item.rawType == "manga") {
-                                        Routes.mangaRoute(
-                                            item.providerId, item.id, item.title, item.posterUrl
-                                        )
-                                    } else {
-                                        Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
-                                    }
-                                )
-                            }
+
+                // ---- Provider-wise Horizontal Rows with "See all >" ----
+                if (expandedProviderId == null && selected.size != 1 && groupedByProvider.size > 1) {
+                    LazyColumn(
+                        state = com.hikari.app.ui.components.keptListState("searchRows:$query|$activeEngine"),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentPadding = PaddingValues(
+                            top = 8.dp + tvEdge,
+                            bottom = LocalTaskbarInset.current + 16.dp + tvEdge +
+                                if (tvSearch) 28.dp else 0.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
                     ) {
-                        val phoneCinema = style.isCinema(false)
-                        val hero = if (phoneCinema) Artwork.heroModel(item) else null
-                        Box(
+                        items(groupedByProvider, key = { "prov-row:" + it.key }) { (provId, provItems) ->
+                            val provName = namesById[provId] ?: provId
+                            Column(Modifier.fillMaxWidth()) {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp + tvEdge, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = provName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    TextButton(
+                                        onClick = { expandedProviderId = provId },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(
+                                            text = tr("See all") + " (${provItems.size}) ›",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+                                }
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp + tvEdge),
+                                    horizontalArrangement = Arrangement.spacedBy(if (tvSearch) 14.dp else 10.dp),
+                                ) {
+                                    items(provItems, key = { it.uniqueId }) { item ->
+                                        val go = {
+                                            Routes.safeNavigate(
+                                                nav,
+                                                if (item.rawType == "manga") Routes.mangaRoute(item.providerId, item.id, item.title, item.posterUrl)
+                                                else Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
+                                            )
+                                        }
+                                        if (tvSearch) {
+                                            Box(Modifier.width(if (style.isCinema(true)) 240.dp else 148.dp)) {
+                                                if (style.isCinema(true)) {
+                                                    com.hikari.app.tv.TvCinemaCard(item = item, onClick = go)
+                                                } else {
+                                                    com.hikari.app.tv.TvVerticalCard(item = item, onClick = go)
+                                                }
+                                            }
+                                        } else {
+                                            val badge = rememberPosterScore(item, style)
+                                            val phoneCinema = style.isCinema(false)
+                                            val hero = if (phoneCinema) Artwork.heroModel(item) else null
+                                            Column(
+                                                Modifier
+                                                    .width(if (phoneCinema) 190.dp else 116.dp)
+                                                    .clickable { go() }
+                                            ) {
+                                                Box(
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .aspectRatio(if (phoneCinema) 16f / 9f else 2f / 3f)
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                ) {
+                                                    AsyncImage(
+                                                        model = if (phoneCinema) hero?.first else Artwork.model(item),
+                                                        contentDescription = item.title,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentScale = ContentScale.Crop,
+                                                        alignment = if (phoneCinema) com.hikari.app.ui.Artwork.CINEMA_ALIGNMENT else Alignment.Center
+                                                    )
+                                                    if (badge != null) {
+                                                        RatingBadge(
+                                                            text = badge,
+                                                            modifier = Modifier
+                                                                .align(Alignment.TopEnd)
+                                                                .padding(4.dp),
+                                                        )
+                                                    }
+                                                }
+                                                Text(
+                                                    item.title,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.padding(top = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    val activeGridItems = remember(gridItems, expandedProviderId) {
+                        if (expandedProviderId == null) gridItems
+                        else gridItems.filter { it.providerId == expandedProviderId }
+                    }
+                    if (expandedProviderId != null) {
+                        Row(
                             Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(if (phoneCinema) 16f / 9f else 2f / 3f)
-                                .clip(RoundedCornerShape(10.dp))
+                                .padding(horizontal = 16.dp + tvEdge, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (phoneCinema && hero != null && !hero.second) {
-                                // Portrait art in a cinema frame: a full-bleed
-                                // 16:9 crop anchored exactly like every other
-                                // cinema frame (see Artwork.CINEMA_ALIGNMENT).
-                                AsyncImage(
-                                    model = hero.first,
-                                    contentDescription = item.title,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop,
-                                    alignment = com.hikari.app.ui.Artwork.CINEMA_ALIGNMENT
-                                )
-                            } else {
-                                AsyncImage(
-                                    model = if (phoneCinema) hero?.first else Artwork.model(item),
-                                    contentDescription = item.title,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop,
-                                    alignment = if (phoneCinema) com.hikari.app.ui.Artwork.CINEMA_ALIGNMENT else Alignment.Center
-                                )
+                            TextButton(onClick = { expandedProviderId = null }) {
+                                Text("‹ " + tr("All providers"))
                             }
-                            if (badge != null) {
-                                RatingBadge(
-                                    text = badge,
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(4.dp),
-                                )
-                            }
-                        }
-                        Text(
-                            item.title,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = if (TvMode.current()) 1 else 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                        if (!TvMode.current()) namesById[item.providerId]?.let { name ->
+                            Spacer(Modifier.width(8.dp))
                             Text(
-                                name,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                text = namesById[expandedProviderId] ?: expandedProviderId.orEmpty(),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
                             )
                         }
                     }
+                    val searchKeys = remember(activeGridItems) { activeGridItems.map { it.uniqueId } }
+                    val searchCols = if (tvSearch) 3 else TvUi.resultsColumns()
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(searchCols),
+                        state = com.hikari.app.ui.components.keptGridState(
+                            "search:$query|$activeEngine|${expandedProviderId.orEmpty()}",
+                            itemKeys = searchKeys,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentPadding = PaddingValues(
+                            start = 10.dp + tvEdge,
+                            end = 10.dp + tvEdge,
+                            top = 8.dp + tvEdge,
+                            bottom = LocalTaskbarInset.current + 12.dp + tvEdge +
+                                if (TvMode.current()) 28.dp else 0.dp,
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(if (tvSearch) 14.dp else 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(if (tvSearch) 20.dp else 10.dp)
+                    ) {
+                        items(activeGridItems, key = { it.uniqueId }) { item ->
+                            if (tvSearch) {
+                                val go = {
+                                    Routes.safeNavigate(
+                                        nav,
+                                        if (item.rawType == "manga") Routes.mangaRoute(item.providerId, item.id, item.title, item.posterUrl)
+                                        else Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
+                                    )
+                                }
+                                if (style.isCinema(true)) {
+                                    com.hikari.app.tv.TvCinemaCard(item = item, onClick = go)
+                                } else {
+                                    com.hikari.app.tv.TvVerticalCard(item = item, onClick = go)
+                                }
+                            } else {
+                                val badge = rememberPosterScore(item, style)
+                                Column(
+                                    Modifier
+                                        .clickable {
+                                            Routes.safeNavigate(
+                                                nav,
+                                                if (item.rawType == "manga") {
+                                                    Routes.mangaRoute(
+                                                        item.providerId, item.id, item.title, item.posterUrl
+                                                    )
+                                                } else {
+                                                    Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
+                                                }
+                                            )
+                                        }
+                                ) {
+                                    val phoneCinema = style.isCinema(false)
+                                    val hero = if (phoneCinema) Artwork.heroModel(item) else null
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(if (phoneCinema) 16f / 9f else 2f / 3f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                    ) {
+                                        if (phoneCinema && hero != null && !hero.second) {
+                                            AsyncImage(
+                                                model = hero.first,
+                                                contentDescription = item.title,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop,
+                                                alignment = com.hikari.app.ui.Artwork.CINEMA_ALIGNMENT
+                                            )
+                                        } else {
+                                            AsyncImage(
+                                                model = if (phoneCinema) hero?.first else Artwork.model(item),
+                                                contentDescription = item.title,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop,
+                                                alignment = if (phoneCinema) com.hikari.app.ui.Artwork.CINEMA_ALIGNMENT else Alignment.Center
+                                            )
+                                        }
+                                        if (badge != null) {
+                                            RatingBadge(
+                                                text = badge,
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(4.dp),
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        item.title,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = if (TvMode.current()) 1 else 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                    if (!TvMode.current()) namesById[item.providerId]?.let { name ->
+                                        Text(
+                                            name,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-            }
             }
         }
     }
 }
 
-/**
- * "From your collections": the titles a search matched inside the user's own
- * catalogs, each labelled with the collection it came from. A row of its own
- * above the provider grid, because these hits answer a different question —
- * "is this already in something I built?" — and no extension will ever return
- * them.
- */
 @Composable
 private fun CollectionHitsRow(
     hits: List<com.hikari.app.data.CollectionsRepository.CollectionHit>,
@@ -1280,8 +1256,6 @@ private fun CollectionHitsRow(
     }
 }
 
-/** Which kind of result the grid keeps: everything, only films, only shows, or
- *  only anime. */
 private enum class SearchKindFilter(val key: String) {
     ALL("all"),
     MOVIES("movies"),
@@ -1294,37 +1268,8 @@ private enum class SearchKindFilter(val key: String) {
     }
 }
 
-/**
- * Every genre the genre strip offers, alphabetically — the ONE vocabulary the
- * Search tab and Home's own strip both use (see
- * [com.hikari.app.data.Genres.ALL], which also knows how to turn a name into a
- * TMDB query: a genre id for the names TMDB has one for, a keyword for the
- * anime tags it does not).
- *
- * A FIXED list on purpose, exactly like [SEARCH_YEARS]: the genres come from the
- * catalogue's own vocabulary, not from what this search happens to have found,
- * so a genre is pickable before a single result is in — and a filter that can
- * only offer what it has already let through is a filter that cannot narrow
- * anything.
- */
 private val SEARCH_GENRES: List<String> = com.hikari.app.data.Genres.ALL
 
-/**
- * Whether a result looks like anime.
- *
- * A provider almost never says "anime" in so many words, so this is the union of
- * the three ways one can say it: the addon's own type string ([MediaItem.rawType]
- * — a Stremio anime catalogue is the type `anime`), a genre that IS anime, and
- * TMDB's "Animation" (which is what every TMDB-sourced anime item carries, since
- * TMDB has no anime genre of its own — an anime title is an animated Japanese
- * show). An extension that tags its results "Anime" is matched by the first
- * genre test.
- *
- * Lives here, with the model, because more than one screen draws an "Anime"
- * filter over a mixed list: the Search tab's kind chips and a TMDB catalog
- * page's kind chips (see `TmdbGridScreen`), and two copies of this rule would
- * eventually disagree about what anime is.
- */
 fun MediaItem.looksAnime(): Boolean {
     if (rawType.equals("anime", true)) return true
     if (genres.any { g ->
@@ -1332,24 +1277,12 @@ fun MediaItem.looksAnime(): Boolean {
         t == "anime" || t == "animation" || t == "animated" || t == "cartoon" ||
             t.contains("anime") || t.contains("cartoon")
     }) return true
-    // Provider-level signal: anime-only engines carry no per-item genres at
-    // all (a site scraper returns titles, not tags), so the provider itself is
-    // the answer — Aniyomi streaming IS the AnimeSource API, and CloudStream
-    // anime plugins live under an anime path segment.
     val p = providerId.trim().lowercase()
     if (p.startsWith("aniyomi|")) return true
     if (p.contains("anime")) return true
     return p.contains("/anime/") || p.contains("|anime|") || p.endsWith("|anime")
 }
 
-/**
- * Every year the year strip offers: next year (a title can already be dated
- * to it) back to 1950, newest first, so the strip opens on the years people
- * actually search for and scrolls into the back catalogue.
- *
- * A FIXED list on purpose: the years come from the calendar, not from what the
- * search has found so far, so a year is pickable before a single result is in.
- */
 private val SEARCH_YEARS: List<Int> = run {
     val thisYear = runCatching {
         java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
@@ -1357,10 +1290,6 @@ private val SEARCH_YEARS: List<Int> = run {
     ((thisYear + 1) downTo 1950).toList()
 }
 
-/**
- * One year in the search filter strip: small, thin and tappable, drawn like the
- * provider chips around it so the strip reads as one control.
- */
 @Composable
 private fun YearChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
@@ -1382,9 +1311,6 @@ private fun YearChip(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** One genre in the genre strip — the same chip as [YearChip], so the two
- *  strips read as one control (which is how the kind chips and the year strip
- *  already read). */
 @Composable
 private fun GenreChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
@@ -1406,8 +1332,6 @@ private fun GenreChip(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** One engine in the result strip: the same chip as [YearChip], so the strip
- *  reads as part of the same control family as the filters above it. */
 @Composable
 private fun EngineChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
@@ -1429,16 +1353,6 @@ private fun EngineChip(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/**
- * One remembered search: the query, and the way to forget that one.
- *
- * The chip itself re-runs the search — that is what a history chip is for — and
- * the ✕ is its OWN click target inside it: a tap on the ✕ must not also run the
- * search, and a press of the remote's centre button on the ✕ must not run it
- * either, which is why the ✕ is a clickable of its own rather than part of the
- * chip's gesture. Both are focus targets, so a D-pad can reach the query and the
- * ✕ separately.
- */
 @Composable
 private fun HistoryChip(
     text: String,
@@ -1482,19 +1396,6 @@ private fun HistoryChip(
     }
 }
 
-/**
- * The scope button: what a search will look through, and the way to change it.
- *
- * The row of provider chips this replaces could only ever show what fitted on
- * screen, and a provider whose chip had scrolled off could not be picked at all —
- * the user's report was "make the all provider showing from horizontal scrolling
- * to vertical … with multi select … and remove the search provider we have
- * outside, as now we will get it in the scrollable vertical bar". So this is a
- * BUTTON in the same shape as the app's other pickers (Home's own provider
- * button): it names the current scope on one line and what the search will do on
- * the next, and tapping it opens the picker — a full-height, searchable,
- * multi-selectable list of every place a title can be looked for.
- */
 @Composable
 private fun ProviderScopeButton(
     label: String,
@@ -1547,22 +1448,6 @@ private fun ProviderScopeButton(
     }
 }
 
-/**
- * Whether one search result survives the filter row.
- *
- * The KIND half keeps a result whose provider never said what it is (type
- * UNKNOWN): whole extensions label their results that way, and hiding all of
- * them would turn picking Movie or Series into an empty screen — which reads as
- * a broken search, not a narrower one. [MediaItem.unknownKindKept] is that same
- * question the other way round, so the count can be shown next to "N shown ·
- * M found" instead of the grid silently disagreeing with its own total.
- *
- * The YEAR and GENRE halves are STRICT: both are picked BEFORE the search, so a
- * result whose source never said when it came out, or what it is (extension
- * catalogues usually carry no genre at all), cannot be presented as one of them
- * — it is counted into "…have no year / no genre, so they are hidden" instead.
- * Anything else would make the two strongest filters look like they did nothing.
- */
 private fun MediaItem.passesSearchFilter(
     kind: SearchKindFilter,
     years: Set<Int>,
@@ -1578,9 +1463,6 @@ private fun MediaItem.passesSearchFilter(
     }
 }
 
-/** True when this result is SHOWN only because the provider did not say what it
- *  is (an unknown kind under a Movie/Series filter — see
- *  [MediaItem.passesSearchFilter]). */
 private fun MediaItem.unknownKindKept(
     kind: SearchKindFilter,
     years: Set<Int>,
