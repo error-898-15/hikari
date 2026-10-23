@@ -6425,10 +6425,10 @@ private fun RepoPluginsView(
     val backFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         if (!com.hikari.app.tv.TvMode.isTv) return@LaunchedEffect
-        runCatching { kotlinx.coroutines.delay(120) }
+        androidx.compose.runtime.withFrameNanos { }
         runCatching { backFocus.requestFocus() }
     }
-
+    
     val cs3SettingsIds = rememberCs3SettingsIds(providers)
     // The repo's own search box. keiyoushi is 1396 entries: finding one by
     // scrolling is not a thing anyone can do, and this listing is the ONLY place
@@ -7685,36 +7685,45 @@ private fun PluginRow(
     repoUrl: String = "",
     jsTwinName: String? = null,
     onInstallJs: (() -> Unit)? = null,
-    /** Probe line for the Test button (download check / full probe). Null hides Test. */
     testText: String? = null,
     testOk: Boolean = false,
     testing: Boolean = false,
     onTest: (() -> Unit)? = null,
-    /** The NAME of the repository this listing came from, drawn as the first
-     *  item of the row's meta line. A repo can list the same extension name
-     *  several times over — four "AniKoto" rows whose only label used to be the
-     *  engine — so the row has to say where it is from even when the group
-     *  heading above it has scrolled away (and the search results, which flatten
-     *  the groups, always show it). */
     repoName: String = "",
 ) {
     val glass = rememberGlassTokens()
     val tileShape = RoundedCornerShape(12.dp)
-    // What a press of the WHOLE row does: the same thing the row's own trailing
-    // button does — install, update, or uninstall — so the big highlight the
-    // remote lands on always belongs to an action written on the row itself.
+    val rowFocus = remember { FocusRequester() }
     val dartOnly = isDartOnlyPlugin(p)
-    val rowAction: (() -> Unit)? = when {
-        !installed && dartOnly -> null
-        !installed -> onInstall
-        updateAvailable -> onUpdate ?: onUninstall
-        else -> onUninstall
+
+    val safeInstall = {
+        runCatching { rowFocus.requestFocus() }
+        onInstall()
     }
-    // The name sits on its own line, full width, inside a glass card; the
-    // action buttons live in a second row below it (the reference provider-
-    // card shape). The old single row put five targets beside the text and
-    // squeezed the name to "Re:…" whenever an Update was pending — the buttons
-    // can never steal the name's width again.
+    val safeUninstall = {
+        runCatching { rowFocus.requestFocus() }
+        onUninstall()
+    }
+    val safeUpdate: (() -> Unit)? = onUpdate?.let { upd ->
+        {
+            runCatching { rowFocus.requestFocus() }
+            upd()
+        }
+    }
+    val safeInstallJs: (() -> Unit)? = onInstallJs?.let { insJs ->
+        {
+            runCatching { rowFocus.requestFocus() }
+            insJs()
+        }
+    }
+
+    val rowAction: (() -> Unit)? = when {
+        !installed && dartOnly -> safeInstallJs
+        !installed -> safeInstall
+        updateAvailable -> safeUpdate ?: safeUninstall
+        else -> safeUninstall
+    }
+
     GlassCard(
         Modifier
             .fillMaxWidth()
@@ -7723,152 +7732,154 @@ private fun PluginRow(
         Column(
             Modifier
                 .padding(12.dp)
-                // The card is a focus TARGET, not just a container: `tvPress`
-                // adds the focus node (with the same focus ring every other
-                // control in the app wears) and the centre press runs the
-                // row's own trailing action. The buttons below stay their own
-                // targets, so pressing Right still steps onto them.
+                .focusRequester(rowFocus)
                 .tvPress(previewPass = false, onClick = { rowAction?.invoke() }),
         ) {
-    Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            Modifier
-                .size(40.dp)
-                .clip(tileShape)
-                .background(Brush.verticalGradient(listOf(glass.fillTop, glass.fillBottom)))
-                .border(1.dp, glass.border, tileShape),
-            contentAlignment = Alignment.Center
-        ) {
-            RepoPluginIcon(
-                p = p,
-                kind = kind,
-                repoUrl = repoUrl,
-                modifier = Modifier.size(28.dp)
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        // The real country flag in front of the name (the reference provider
-        // list's flags) — the text meta below keeps the "🇮🇳 Hindi" label too.
-        val flagCode = langCodeOf(p)
-        if (flagCode != null) {
-            FlagIcon(code = flagCode, size = 24.dp)
-            Spacer(Modifier.width(10.dp))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(
-                p.name,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            val meta = listOfNotNull(
-                langFlagOf(p),
-                repoName.ifBlank { null },
-                p.description.ifBlank { null },
-                p.authors.joinToString(", ").ifBlank { null },
-                if (p.version > 0) "v${p.version}" else null,
-                p.tvTypes.joinToString(", ").ifBlank { null },
-            ).joinToString(" · ")
-            Text(
-                meta,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (testText != null) {
-                Text(
-                    testText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (testOk) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.error,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-        if (installed && onSettings != null) {
-            IconButton(onClick = onSettings, modifier = Modifier.tvPress(previewPass = true, onClick = onSettings)) {
-                Icon(
-                    Icons.Filled.Settings,
-                    contentDescription = tr("Plugin settings"),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        }
-        // Actions below the name — Test, Uninstall, Update, Install — with the
-        // full width to themselves, so the name above can never collapse.
-        Row(
-            Modifier.fillMaxWidth().padding(top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-        if (onTest != null) {
-            TextButton(onClick = onTest, enabled = !testing, modifier = Modifier.tvPress(previewPass = true, enabled = !testing, onClick = onTest)) {
-                Text(if (testing) tr("Testing…") else tr("Test"))
-            }
-        }
-        if (installed) {
-            if (updateAvailable && onUpdate != null) {
-                TextButton(onClick = onUninstall, modifier = Modifier.tvPress(previewPass = true, onClick = onUninstall)) {
-                    Text(tr("Uninstall"), color = MaterialTheme.colorScheme.error)
-                }
-                Button(
-                    onClick = onUpdate,
-                    modifier = Modifier.tvPress(previewPass = true, onClick = onUpdate),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    Icon(
-                        Icons.Filled.Refresh,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(tr("Update"))
-                }
-            } else {
-                TextButton(
-                    onClick = onUninstall,
-                    modifier = Modifier.tvPress(previewPass = true, onClick = onUninstall),
-                ) {
-                    Text(tr("Uninstall"), color = MaterialTheme.colorScheme.error)
-                }
-            }
-        } else if (dartOnly) {
-            if (onInstallJs != null) {
-                Button(
-                    onClick = onInstallJs,
-                    modifier = Modifier.tvPress(previewPass = true, onClick = onInstallJs),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(tr("JS version"))
-                }
-            } else {
-                Text(
-                    tr("Dart-only"),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            Button(
-                onClick = onInstall,
-                modifier = Modifier.tvPress(previewPass = true, onClick = onInstall),
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(tr("Install"))
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(tileShape)
+                        .background(Brush.verticalGradient(listOf(glass.fillTop, glass.fillBottom)))
+                        .border(1.dp, glass.border, tileShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    RepoPluginIcon(
+                        p = p,
+                        kind = kind,
+                        repoUrl = repoUrl,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                val flagCode = langCodeOf(p)
+                if (flagCode != null) {
+                    FlagIcon(code = flagCode, size = 24.dp)
+                    Spacer(Modifier.width(10.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        p.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val meta = listOfNotNull(
+                        langFlagOf(p),
+                        repoName.ifBlank { null },
+                        p.description.ifBlank { null },
+                        p.authors.joinToString(", ").ifBlank { null },
+                        if (p.version > 0) "v${p.version}" else null,
+                        p.tvTypes.joinToString(", ").ifBlank { null },
+                    ).joinToString(" · ")
+                    Text(
+                        meta,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (testText != null) {
+                        Text(
+                            testText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (testOk) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.error,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                if (installed && onSettings != null) {
+                    IconButton(
+                        onClick = onSettings,
+                        modifier = Modifier.tvPress(previewPass = true, onClick = onSettings)
+                    ) {
+                        Icon(
+                            Icons.Filled.Settings,
+                            contentDescription = tr("Plugin settings"),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (onTest != null) {
+                    TextButton(
+                        onClick = onTest,
+                        enabled = !testing,
+                        modifier = Modifier.tvPress(previewPass = true, enabled = !testing, onClick = onTest)
+                    ) {
+                        Text(if (testing) tr("Testing…") else tr("Test"))
+                    }
+                }
+                if (installed) {
+                    if (updateAvailable && safeUpdate != null) {
+                        TextButton(
+                            onClick = safeUninstall,
+                            modifier = Modifier.tvPress(previewPass = true, onClick = safeUninstall)
+                        ) {
+                            Text(tr("Uninstall"), color = MaterialTheme.colorScheme.error)
+                        }
+                        Button(
+                            onClick = safeUpdate,
+                            modifier = Modifier.tvPress(previewPass = true, onClick = safeUpdate),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(tr("Update"))
+                        }
+                    } else {
+                        TextButton(
+                            onClick = safeUninstall,
+                            modifier = Modifier.tvPress(previewPass = true, onClick = safeUninstall),
+                        ) {
+                            Text(tr("Uninstall"), color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                } else if (dartOnly) {
+                    if (safeInstallJs != null) {
+                        Button(
+                            onClick = safeInstallJs,
+                            modifier = Modifier.tvPress(previewPass = true, onClick = safeInstallJs),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        ) {
+                            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(tr("JS version"))
+                        }
+                    } else {
+                        Text(
+                            tr("Dart-only"),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = safeInstall,
+                        modifier = Modifier.tvPress(previewPass = true, onClick = safeInstall),
+                    ) {
+                        Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(tr("Install"))
+                    }
+                }
             }
         }
-            } // actions row
-        } // card column
-    } // glass card
+    }
 }
 
 /**
@@ -8264,7 +8275,7 @@ private fun SourceFolderView(
     val backFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         if (!com.hikari.app.tv.TvMode.isTv) return@LaunchedEffect
-        runCatching { kotlinx.coroutines.delay(120) }
+        androidx.compose.runtime.withFrameNanos { }
         runCatching { backFocus.requestFocus() }
     }
 
@@ -8734,7 +8745,7 @@ private fun SourcesOverviewView(
     val backFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         if (!com.hikari.app.tv.TvMode.isTv) return@LaunchedEffect
-        runCatching { kotlinx.coroutines.delay(120) }
+        androidx.compose.runtime.withFrameNanos { }
         runCatching { backFocus.requestFocus() }
     }
 
@@ -9133,7 +9144,7 @@ private fun AllReposView(
     val backFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         if (!com.hikari.app.tv.TvMode.isTv) return@LaunchedEffect
-        runCatching { kotlinx.coroutines.delay(120) }
+        androidx.compose.runtime.withFrameNanos { }
         runCatching { backFocus.requestFocus() }
     }
 
@@ -9284,7 +9295,7 @@ private fun InstalledExtensionsView(
     val backFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         if (!com.hikari.app.tv.TvMode.isTv) return@LaunchedEffect
-        runCatching { kotlinx.coroutines.delay(120) }
+        androidx.compose.runtime.withFrameNanos { }
         runCatching { backFocus.requestFocus() }
     }
 
