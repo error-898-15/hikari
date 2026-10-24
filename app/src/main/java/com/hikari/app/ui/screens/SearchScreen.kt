@@ -9,7 +9,6 @@ import com.hikari.app.ui.components.GlassSearchField
 
 import android.app.Application
 import android.content.Context
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -27,7 +26,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -104,10 +102,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 
-/**
- * Self-contained preference for showing/hiding the Search Filters (Genre, Year & Kind)
- * below the search bar. Default is FALSE (hidden), and can be toggled in Settings > App Layout.
- */
 object SearchFilterPrefs {
     private const val PREFS_NAME = "hikari_search_filter_prefs"
     private const val KEY_SHOW_FILTERS = "show_search_filters"
@@ -130,9 +124,6 @@ object SearchFilterPrefs {
     }
 }
 
-/**
- * Card for Settings > App Layout to toggle Search Filters on/off.
- */
 @Composable
 fun SearchFiltersSettingCard() {
     val context = LocalContext.current
@@ -575,7 +566,7 @@ fun SearchScreen(
             }
         }
 
-        // ---- Optional Result filters (Hidden by default; enabled via Settings > App Layout) ----
+        // ---- Optional Result filters (Hidden by default) ----
         if (showFilters) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
@@ -826,13 +817,7 @@ fun SearchScreen(
             LinearProgressIndicator(Modifier.fillMaxWidth())
         }
 
-        // Expanded provider state for "See all >" full grid view
-        var expandedProviderId by rememberSaveable(query) { mutableStateOf<String?>(null) }
-        BackHandler(enabled = expandedProviderId != null) {
-            expandedProviderId = null
-        }
-
-        // ---- Live Suggestions strip while typing ----
+        // ---- Search Suggestions ----
         val liveSuggestions = remember(query, visible) {
             val q = query.trim()
             if (q.length < 2 || visible.isEmpty()) emptyList()
@@ -841,7 +826,7 @@ fun SearchScreen(
                 .distinct()
                 .take(8)
         }
-        if (liveSuggestions.isNotEmpty() && expandedProviderId == null) {
+        if (liveSuggestions.isNotEmpty()) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -925,7 +910,7 @@ fun SearchScreen(
                         }
                     }
                 }
-                if (collectionHits.isNotEmpty() && expandedProviderId == null) {
+                if (collectionHits.isNotEmpty()) {
                     CollectionHitsRow(
                         if (filterOn) {
                             collectionHits.filter {
@@ -948,248 +933,110 @@ fun SearchScreen(
                         )
                     }
                 }
-
                 val gridItems = rememberVisibleItems(visible)
-                val groupedByProvider = remember(gridItems) {
-                    gridItems.groupBy { it.providerId }.entries.toList()
-                }
+                val searchKeys = remember(gridItems) { gridItems.map { it.uniqueId } }
                 val style = rememberPosterStyle()
                 val tvSearch = TvMode.current()
-
-                // ---- Provider-wise Horizontal Rows with "See all >" ----
-                if (expandedProviderId == null && selected.size != 1 && groupedByProvider.size > 1) {
-                    LazyColumn(
-                        state = com.hikari.app.ui.components.keptListState("searchRows:$query|$activeEngine"),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentPadding = PaddingValues(
-                            top = 8.dp + tvEdge,
-                            bottom = LocalTaskbarInset.current + 16.dp + tvEdge +
-                                if (tvSearch) 28.dp else 0.dp,
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
-                    ) {
-                        items(groupedByProvider, key = { "prov-row:" + it.key }) { (provId, provItems) ->
-                            val provName = namesById[provId] ?: provId
-                            Column(Modifier.fillMaxWidth()) {
-                                Row(
+                val searchCols = if (tvSearch) 3 else TvUi.resultsColumns()
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(searchCols),
+                    state = com.hikari.app.ui.components.keptGridState(
+                        "search:$query|$activeEngine",
+                        itemKeys = searchKeys,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentPadding = PaddingValues(
+                        start = 10.dp + tvEdge,
+                        end = 10.dp + tvEdge,
+                        top = 8.dp + tvEdge,
+                        bottom = LocalTaskbarInset.current + 12.dp + tvEdge +
+                            if (TvMode.current()) 28.dp else 0.dp,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(if (tvSearch) 14.dp else 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (tvSearch) 20.dp else 10.dp)
+                ) {
+                    items(gridItems, key = { it.uniqueId }) { item ->
+                        if (tvSearch) {
+                            val go = {
+                                Routes.safeNavigate(
+                                    nav,
+                                    if (item.rawType == "manga") Routes.mangaRoute(item.providerId, item.id, item.title, item.posterUrl)
+                                    else Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
+                                )
+                            }
+                            if (style.isCinema(true)) {
+                                com.hikari.app.tv.TvCinemaCard(item = item, onClick = go)
+                            } else {
+                                com.hikari.app.tv.TvVerticalCard(item = item, onClick = go)
+                            }
+                        } else {
+                            val badge = rememberPosterScore(item, style)
+                            Column(
+                                Modifier
+                                    .clickable {
+                                        Routes.safeNavigate(
+                                            nav,
+                                            if (item.rawType == "manga") {
+                                                Routes.mangaRoute(
+                                                    item.providerId, item.id, item.title, item.posterUrl
+                                                )
+                                            } else {
+                                                Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
+                                            }
+                                        )
+                                    }
+                            ) {
+                                val phoneCinema = style.isCinema(false)
+                                val hero = if (phoneCinema) Artwork.heroModel(item) else null
+                                Box(
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 16.dp + tvEdge, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
+                                        .aspectRatio(if (phoneCinema) 16f / 9f else 2f / 3f)
+                                        .clip(RoundedCornerShape(10.dp))
                                 ) {
+                                    if (phoneCinema && hero != null && !hero.second) {
+                                        AsyncImage(
+                                            model = hero.first,
+                                            contentDescription = item.title,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop,
+                                            alignment = com.hikari.app.ui.Artwork.CINEMA_ALIGNMENT
+                                        )
+                                    } else {
+                                        AsyncImage(
+                                            model = if (phoneCinema) hero?.first else Artwork.model(item),
+                                            contentDescription = item.title,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop,
+                                            alignment = if (phoneCinema) com.hikari.app.ui.Artwork.CINEMA_ALIGNMENT else Alignment.Center
+                                        )
+                                    }
+                                    if (badge != null) {
+                                        RatingBadge(
+                                            text = badge,
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(4.dp),
+                                        )
+                                    }
+                                }
+                                Text(
+                                    item.title,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = if (TvMode.current()) 1 else 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                                if (!TvMode.current()) namesById[item.providerId]?.let { name ->
                                     Text(
-                                        text = provName,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
+                                        name,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
+                                        overflow = TextOverflow.Ellipsis
                                     )
-                                    TextButton(
-                                        onClick = { expandedProviderId = provId },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                    ) {
-                                        Text(
-                                            text = tr("See all") + " (${provItems.size}) ›",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.SemiBold,
-                                        )
-                                    }
-                                }
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp + tvEdge),
-                                    horizontalArrangement = Arrangement.spacedBy(if (tvSearch) 14.dp else 10.dp),
-                                ) {
-                                    items(provItems, key = { it.uniqueId }) { item ->
-                                        val go = {
-                                            Routes.safeNavigate(
-                                                nav,
-                                                if (item.rawType == "manga") Routes.mangaRoute(item.providerId, item.id, item.title, item.posterUrl)
-                                                else Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
-                                            )
-                                        }
-                                        if (tvSearch) {
-                                            Box(Modifier.width(if (style.isCinema(true)) 240.dp else 148.dp)) {
-                                                if (style.isCinema(true)) {
-                                                    com.hikari.app.tv.TvCinemaCard(item = item, onClick = go)
-                                                } else {
-                                                    com.hikari.app.tv.TvVerticalCard(item = item, onClick = go)
-                                                }
-                                            }
-                                        } else {
-                                            val badge = rememberPosterScore(item, style)
-                                            val phoneCinema = style.isCinema(false)
-                                            val hero = if (phoneCinema) Artwork.heroModel(item) else null
-                                            Column(
-                                                Modifier
-                                                    .width(if (phoneCinema) 190.dp else 116.dp)
-                                                    .clickable { go() }
-                                            ) {
-                                                Box(
-                                                    Modifier
-                                                        .fillMaxWidth()
-                                                        .aspectRatio(if (phoneCinema) 16f / 9f else 2f / 3f)
-                                                        .clip(RoundedCornerShape(10.dp))
-                                                ) {
-                                                    AsyncImage(
-                                                        model = if (phoneCinema) hero?.first else Artwork.model(item),
-                                                        contentDescription = item.title,
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        contentScale = ContentScale.Crop,
-                                                        alignment = if (phoneCinema) com.hikari.app.ui.Artwork.CINEMA_ALIGNMENT else Alignment.Center
-                                                    )
-                                                    if (badge != null) {
-                                                        RatingBadge(
-                                                            text = badge,
-                                                            modifier = Modifier
-                                                                .align(Alignment.TopEnd)
-                                                                .padding(4.dp),
-                                                        )
-                                                    }
-                                                }
-                                                Text(
-                                                    item.title,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.padding(top = 4.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    val activeGridItems = remember(gridItems, expandedProviderId) {
-                        if (expandedProviderId == null) gridItems
-                        else gridItems.filter { it.providerId == expandedProviderId }
-                    }
-                    if (expandedProviderId != null) {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp + tvEdge, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            TextButton(onClick = { expandedProviderId = null }) {
-                                Text("‹ " + tr("All providers"))
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = namesById[expandedProviderId] ?: expandedProviderId.orEmpty(),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
-                    val searchKeys = remember(activeGridItems) { activeGridItems.map { it.uniqueId } }
-                    val searchCols = if (tvSearch) 3 else TvUi.resultsColumns()
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(searchCols),
-                        state = com.hikari.app.ui.components.keptGridState(
-                            "search:$query|$activeEngine|${expandedProviderId.orEmpty()}",
-                            itemKeys = searchKeys,
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentPadding = PaddingValues(
-                            start = 10.dp + tvEdge,
-                            end = 10.dp + tvEdge,
-                            top = 8.dp + tvEdge,
-                            bottom = LocalTaskbarInset.current + 12.dp + tvEdge +
-                                if (TvMode.current()) 28.dp else 0.dp,
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(if (tvSearch) 14.dp else 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(if (tvSearch) 20.dp else 10.dp)
-                    ) {
-                        items(activeGridItems, key = { it.uniqueId }) { item ->
-                            if (tvSearch) {
-                                val go = {
-                                    Routes.safeNavigate(
-                                        nav,
-                                        if (item.rawType == "manga") Routes.mangaRoute(item.providerId, item.id, item.title, item.posterUrl)
-                                        else Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
-                                    )
-                                }
-                                if (style.isCinema(true)) {
-                                    com.hikari.app.tv.TvCinemaCard(item = item, onClick = go)
-                                } else {
-                                    com.hikari.app.tv.TvVerticalCard(item = item, onClick = go)
-                                }
-                            } else {
-                                val badge = rememberPosterScore(item, style)
-                                Column(
-                                    Modifier
-                                        .clickable {
-                                            Routes.safeNavigate(
-                                                nav,
-                                                if (item.rawType == "manga") {
-                                                    Routes.mangaRoute(
-                                                        item.providerId, item.id, item.title, item.posterUrl
-                                                    )
-                                                } else {
-                                                    Routes.detail(item.providerId, item.type, item.id, item.title, item.posterUrl, item.rawType)
-                                                }
-                                            )
-                                        }
-                                ) {
-                                    val phoneCinema = style.isCinema(false)
-                                    val hero = if (phoneCinema) Artwork.heroModel(item) else null
-                                    Box(
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(if (phoneCinema) 16f / 9f else 2f / 3f)
-                                            .clip(RoundedCornerShape(10.dp))
-                                    ) {
-                                        if (phoneCinema && hero != null && !hero.second) {
-                                            AsyncImage(
-                                                model = hero.first,
-                                                contentDescription = item.title,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop,
-                                                alignment = com.hikari.app.ui.Artwork.CINEMA_ALIGNMENT
-                                            )
-                                        } else {
-                                            AsyncImage(
-                                                model = if (phoneCinema) hero?.first else Artwork.model(item),
-                                                contentDescription = item.title,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop,
-                                                alignment = if (phoneCinema) com.hikari.app.ui.Artwork.CINEMA_ALIGNMENT else Alignment.Center
-                                            )
-                                        }
-                                        if (badge != null) {
-                                            RatingBadge(
-                                                text = badge,
-                                                modifier = Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .padding(4.dp),
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        item.title,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = if (TvMode.current()) 1 else 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(top = 4.dp)
-                                    )
-                                    if (!TvMode.current()) namesById[item.providerId]?.let { name ->
-                                        Text(
-                                            name,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
                                 }
                             }
                         }
